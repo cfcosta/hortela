@@ -1,9 +1,21 @@
-2020-01-01 open assets:cash_account 100 BRL
-2020-01-01 balance assets:cash_account 101 BRL
+2020-01-01 open equity:initial_import 300 BRL
 
-2020-01-01 open expenses:stuff 0 BRL
+2020-01-01 open assets:cash_account BRL
+2020-01-01 balance assets:cash_account 0 BRL
+
+2020-01-01 open expenses:stuff BRL
 2020-01-01 balance expenses:stuff 0 BRL
 
+2020-01-01 open liabilities:credit_card 200 BRL
+
+2020-01-02 transaction Move some equity to assets account
+  < 300 BRL equity:initial_import
+  > 300 BRL assets:cash_account
+
 2020-01-02 transaction Buy some books
-  - 100 BRL assets:cash_account
-  + 100 BRL expenses:stuff
+  < 100 BRL assets:cash_account
+  > 100 BRL expenses:stuff
+
+2020-01-02 transaction Pay credit card
+  < 100 BRL assets:cash_account
+  > 100 BRL expenses:stuff
