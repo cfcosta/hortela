@@ -1,61 +1,18 @@
 use std::{fs, path::Path};
 
-use anyhow::{bail, Result, Ok};
+use anyhow::{bail, Ok, Result};
 use chrono::prelude::*;
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag, take_while_m_n},
+    bytes::complete::{is_not, tag, take_while1},
     character::complete::{alphanumeric1, char, digit1, line_ending, space1},
-    combinator::{map_res, opt, recognize, value},
+    combinator::{map_res, recognize, value},
     multi::{many0, many1, separated_list1},
     sequence::tuple,
     IResult,
 };
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
-pub enum Account {
-    Assets(String),
-    Liabilities(String),
-    Income(String),
-    Equity(String),
-    Expenses(String),
-}
-
-#[derive(Clone, Copy)]
-pub enum AccountType {
-    Assets,
-    Liabilities,
-    Income,
-    Equity,
-    Expenses,
-}
-
-#[derive(Debug, PartialEq, Clone, Default)]
-pub struct Money {
-    amount: f64,
-    currency: String,
-}
-
-impl Money {
-    pub fn new(amount: f64, currency: &str) -> Self {
-        Self {
-            amount,
-            currency: currency.into(),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum Movement {
-    Credit(Account, Money),
-    Debit(Account, Money),
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum MovementKind {
-    Credit,
-    Debit,
-}
+use crate::{ account::*, money::* };
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expr {
@@ -89,18 +46,13 @@ fn float(input: &str) -> IResult<&str, f64> {
 fn currency(input: &str) -> IResult<&str, &str> {
     let is_valid = |c: char| c.is_alphabetic() && c.is_uppercase();
 
-    recognize(take_while_m_n(3, 4, is_valid))(input)
+    recognize(take_while1(is_valid))(input)
 }
 
 fn money(input: &str) -> IResult<&str, Money> {
     map_res(
         tuple((amount, space1, currency)),
-        |(amount, _, currency)| {
-            Ok(Money {
-                amount,
-                currency: currency.into(),
-            })
-        },
+        |(amount, _, currency)| Ok(Money::new(amount, currency.into())),
     )(input)
 }
 
@@ -149,11 +101,13 @@ fn account_with_balance(input: &str) -> IResult<&str, (Account, Money)> {
     map_res(
         tuple((account_parts, space1, currency)),
         |((acc, _, id), _, currency)| match acc {
-            AccountType::Assets => Ok((Account::Assets(id.into()), Money { amount: 0.0, currency: currency.to_string() })),
-            AccountType::Liabilities => Ok((Account::Liabilities(id.into()), Money { amount: 0.0, currency: currency.to_string() })),
-            AccountType::Equity => Ok((Account::Equity(id.into()), Money { amount: 0.0, currency: currency.to_string() })),
-            AccountType::Expenses => Ok((Account::Expenses(id.into()), Money { amount: 0.0, currency: currency.to_string() })),
-            AccountType::Income => Ok((Account::Income(id.into()), Money { amount: 0.0, currency: currency.to_string() })),
+            AccountType::Assets => Ok((Account::Assets(id.into()), Money::new(0.0, currency))),
+            AccountType::Liabilities => {
+                Ok((Account::Liabilities(id.into()), Money::new(0.0, currency)))
+            }
+            AccountType::Equity => Ok((Account::Equity(id.into()), Money::new(0.0, currency))),
+            AccountType::Expenses => Ok((Account::Expenses(id.into()), Money::new(0.0, currency))),
+            AccountType::Income => Ok((Account::Income(id.into()), Money::new(0.0, currency))),
         },
     )(input)
 }
@@ -308,10 +262,7 @@ mod tests {
                 Expr::Open(
                     NaiveDate::from_ymd(2020, 01, 01),
                     Account::Income("salary".into()),
-                    Money {
-                        amount: 0.0,
-                        currency: "USD".into()
-                    }
+                    Money::new(0.0, "USD".into())
                 )
             )
         );
@@ -327,10 +278,7 @@ mod tests {
                 Expr::Balance(
                     NaiveDate::from_ymd(2020, 01, 01),
                     Account::Income("salary".into()),
-                    Money {
-                        amount: 0.0,
-                        currency: "USD".into()
-                    }
+                    Money::new(0.0, "USD".into())
                 )
             )
         );
@@ -345,10 +293,7 @@ mod tests {
                 "",
                 Movement::Credit(
                     Account::Equity("initial_balance".into()),
-                    Money {
-                        amount: 300.0,
-                        currency: "BRL".into()
-                    }
+                    Money::new(300.0, "BRL".into())
                 )
             )
         );
@@ -359,10 +304,7 @@ mod tests {
                 "",
                 Movement::Debit(
                     Account::Assets("cash_account".into()),
-                    Money {
-                        amount: 300.0,
-                        currency: "BRL".into()
-                    }
+                    Money::new(300.0, "BRL".into())
                 )
             )
         );
@@ -378,17 +320,11 @@ mod tests {
                 vec![
                     Movement::Credit(
                         Account::Equity("initial_balance".into()),
-                        Money {
-                            amount: 300.0,
-                            currency: "BRL".into()
-                        }
+                        Money::new(300.0, "BRL".into())
                     ),
                     Movement::Debit(
                         Account::Assets("cash_account".into()),
-                        Money {
-                            amount: 300.0,
-                            currency: "BRL".into()
-                        }
+                        Money::new(300.0, "BRL".into())
                     )
                 ]
             )
@@ -417,17 +353,11 @@ mod tests {
         let transactions = vec![
             Movement::Debit(
                 Account::Equity("initial_balance".into()),
-                Money {
-                    amount: 300.0,
-                    currency: "BRL".into(),
-                },
+                Money::new(300.0, "BRL".into(),),
             ),
             Movement::Credit(
                 Account::Assets("cash_account".into()),
-                Money {
-                    amount: 300.0,
-                    currency: "BRL".into(),
-                },
+                Money::new(300.0, "BRL".into(),),
             ),
         ];
 
@@ -471,10 +401,7 @@ mod tests {
             vec![Expr::Open(
                 NaiveDate::from_ymd(2020, 1, 1),
                 Account::Assets("cash_account".into()),
-                Money {
-                    amount: 0.0,
-                    currency: "BRL".into()
-                }
+                Money::new(0.0, "BRL".into())
             )]
         );
 
@@ -487,10 +414,7 @@ mod tests {
             Expr::Open(
                 NaiveDate::from_ymd(2020, 1, 1),
                 Account::Assets("cash_account".into()),
-                Money {
-                    amount: 0.0,
-                    currency: "BRL".into(),
-                },
+                Money::new(0.0, "BRL".into(),),
             ),
             Expr::Balance(
                 NaiveDate::from_ymd(2020, 1, 1),
