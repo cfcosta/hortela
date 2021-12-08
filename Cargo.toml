@@ -12,5 +12,5 @@ nom = "7.1.0"
 nom_locate = "4.0.0"
 
 [[bin]]
-name = "hortela-tr"
-path = "src/bin/test_runner.rs"
+name = "hortela-verify"
+path = "src/bin/verifier.rs"

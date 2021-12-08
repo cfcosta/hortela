@@ -1,0 +1,9 @@
+2020-01-01 open assets:cash_account 100 BRL
+2020-01-01 balance assets:cash_account 101 BRL
+
+2020-01-01 open expenses:stuff 0 BRL
+2020-01-01 balance expenses:stuff 0 BRL
+
+2020-01-02 transaction Buy some books
+  - 100 BRL assets:cash_account
+  + 100 BRL expenses:stuff

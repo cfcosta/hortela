@@ -12,7 +12,7 @@ use nom::{
     IResult,
 };
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
 pub enum Account {
     Assets(String),
     Liabilities(String),
