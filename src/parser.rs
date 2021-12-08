@@ -1,12 +1,12 @@
 use std::{fs, path::Path};
 
-use anyhow::Result;
+use anyhow::{bail, Result, Ok};
 use chrono::prelude::*;
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take_while_m_n},
     character::complete::{alphanumeric1, char, digit1, line_ending, space1},
-    combinator::{map_res, recognize, value},
+    combinator::{map_res, opt, recognize, value},
     multi::{many0, many1, separated_list1},
     sequence::tuple,
     IResult,
@@ -30,7 +30,7 @@ pub enum AccountType {
     Expenses,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Default)]
 pub struct Money {
     amount: f64,
     currency: String,
@@ -75,14 +75,14 @@ fn amount(input: &str) -> IResult<&str, f64> {
     alt((
         float,
         map_res(digit1, |out: &str| {
-            anyhow::Ok(out.to_string().parse::<f64>()?.into())
+            Ok(out.to_string().parse::<f64>()?.into())
         }),
     ))(input)
 }
 
 fn float(input: &str) -> IResult<&str, f64> {
     map_res(recognize(tuple((digit1, tag("."), digit1))), |out: &str| {
-        anyhow::Ok(out.to_string().parse::<f64>()?.into())
+        Ok(out.to_string().parse::<f64>()?.into())
     })(input)
 }
 
@@ -96,7 +96,7 @@ fn money(input: &str) -> IResult<&str, Money> {
     map_res(
         tuple((amount, space1, currency)),
         |(amount, _, currency)| {
-            anyhow::Ok(Money {
+            Ok(Money {
                 amount,
                 currency: currency.into(),
             })
@@ -119,36 +119,50 @@ fn identifier(input: &str) -> IResult<&str, &str> {
 }
 
 fn account(input: &str) -> IResult<&str, Account> {
+    map_res(account_parts, |(acc, _, id)| {
+        Ok(match acc {
+            AccountType::Assets => Account::Assets(id.into()),
+            AccountType::Liabilities => Account::Liabilities(id.into()),
+            AccountType::Equity => Account::Equity(id.into()),
+            AccountType::Expenses => Account::Expenses(id.into()),
+            AccountType::Income => Account::Income(id.into()),
+        })
+    })(input)
+}
+
+fn account_parts(input: &str) -> IResult<&str, (AccountType, &str, &str)> {
+    tuple((account_type, tag(":"), identifier))(input)
+}
+
+fn account_with_currency(input: &str) -> IResult<&str, (Account, Money)> {
     map_res(
-        tuple((account_type, tag(":"), identifier)),
-        |(acc, _, id)| {
-            anyhow::Ok(match acc {
-                AccountType::Assets => Account::Assets(id.into()),
-                AccountType::Liabilities => Account::Liabilities(id.into()),
-                AccountType::Equity => Account::Equity(id.into()),
-                AccountType::Expenses => Account::Expenses(id.into()),
-                AccountType::Income => Account::Income(id.into()),
-            })
+        tuple((account_parts, space1, money)),
+        |((acc, _, id), _, money)| match acc {
+            AccountType::Liabilities => Ok((Account::Liabilities(id.into()), money)),
+            AccountType::Equity => Ok((Account::Equity(id.into()), money)),
+            _ => bail!("Only liabilities and equity accounts can start with balances."),
         },
     )(input)
 }
 
-fn single_expr(
-    keyword: &'static str,
-) -> impl Fn(&str) -> IResult<&str, (NaiveDate, Account, Money)> {
+fn account_with_balance(input: &str) -> IResult<&str, (Account, Money)> {
+    map_res(
+        tuple((account_parts, space1, currency)),
+        |((acc, _, id), _, currency)| match acc {
+            AccountType::Assets => Ok((Account::Assets(id.into()), Money { amount: 0.0, currency: currency.to_string() })),
+            AccountType::Liabilities => Ok((Account::Liabilities(id.into()), Money { amount: 0.0, currency: currency.to_string() })),
+            AccountType::Equity => Ok((Account::Equity(id.into()), Money { amount: 0.0, currency: currency.to_string() })),
+            AccountType::Expenses => Ok((Account::Expenses(id.into()), Money { amount: 0.0, currency: currency.to_string() })),
+            AccountType::Income => Ok((Account::Income(id.into()), Money { amount: 0.0, currency: currency.to_string() })),
+        },
+    )(input)
+}
+
+fn single_expr(keyword: &'static str) -> impl Fn(&str) -> IResult<&str, NaiveDate> {
     move |input: &str| {
         map_res(
-            tuple((
-                any_spaces0,
-                date,
-                space1,
-                tag(keyword),
-                space1,
-                account,
-                space1,
-                money,
-            )),
-            |(_, date, _, _, _, acc, _, money)| anyhow::Ok((date, acc, money)),
+            tuple((any_spaces0, date, space1, tag(keyword))),
+            |(_, date, _, _)| Ok(date),
         )(input)
     }
 }
@@ -156,23 +170,23 @@ fn single_expr(
 fn movement_list(input: &str) -> IResult<&str, Vec<Movement>> {
     map_res(
         tuple((any_spaces0, separated_list1(any_spaces1, movement))),
-        |(_, movs)| anyhow::Ok(movs),
+        |(_, movs)| Ok(movs),
     )(input)
 }
 
 fn movement(input: &str) -> IResult<&str, Movement> {
     let kind = |s| {
         alt((
-            value(MovementKind::Credit, tag("+")),
-            value(MovementKind::Debit, tag("-")),
+            value(MovementKind::Credit, tag(">")),
+            value(MovementKind::Debit, tag("<")),
         ))(s)
     };
 
     map_res(
         tuple((kind, space1, money, space1, account)),
         |(kind, _, money, _, acc)| match kind {
-            MovementKind::Credit => anyhow::Ok(Movement::Credit(acc, money)),
-            MovementKind::Debit => anyhow::Ok(Movement::Debit(acc, money)),
+            MovementKind::Credit => Ok(Movement::Credit(acc, money)),
+            MovementKind::Debit => Ok(Movement::Debit(acc, money)),
         },
     )(input)
 }
@@ -186,27 +200,33 @@ fn transaction_header(input: &str) -> IResult<&str, (NaiveDate, String)> {
             space1,
             alt((is_not("\r\n"), is_not("\n"))),
         )),
-        |(date, _, _, _, description)| anyhow::Ok((date, description.into())),
+        |(date, _, _, _, description)| Ok((date, description.into())),
     )(input)
 }
 
 fn expr_transaction(input: &str) -> IResult<&str, Expr> {
     map_res(
         tuple((transaction_header, line_ending, movement_list)),
-        |((date, desc), _, movements)| anyhow::Ok(Expr::Transaction(date, desc, movements)),
+        |((date, desc), _, movements)| Ok(Expr::Transaction(date, desc, movements)),
     )(input)
 }
 
 fn expr_open(input: &str) -> IResult<&str, Expr> {
-    map_res(single_expr("open"), |(date, acc, money)| {
-        anyhow::Ok(Expr::Open(date, acc, money))
-    })(input)
+    map_res(
+        tuple((
+            single_expr("open"),
+            space1,
+            alt((account_with_balance, account_with_currency)),
+        )),
+        |(date, _, (acc, money))| Ok(Expr::Open(date, acc, money)),
+    )(input)
 }
 
 fn expr_balance(input: &str) -> IResult<&str, Expr> {
-    map_res(single_expr("balance"), |(date, acc, money)| {
-        anyhow::Ok(Expr::Balance(date, acc, money))
-    })(input)
+    map_res(
+        tuple((single_expr("balance"), space1, account, space1, money)),
+        |(date, _, acc, _, money)| Ok(Expr::Balance(date, acc, money)),
+    )(input)
 }
 
 fn expr(input: &str) -> IResult<&str, Expr> {
@@ -224,7 +244,7 @@ fn any_spaces1(input: &str) -> IResult<&str, ()> {
 fn file(input: &str) -> IResult<&str, Vec<Expr>> {
     map_res(
         tuple((any_spaces0, separated_list1(any_spaces1, expr), any_spaces0)),
-        |(_, expr, _)| anyhow::Ok(expr),
+        |(_, expr, _)| Ok(expr),
     )(input)
 }
 
@@ -282,7 +302,7 @@ mod tests {
     #[test]
     fn test_parse_open() -> Result<()> {
         assert_eq!(
-            expr("2020-01-01 open income:salary 0 USD")?,
+            expr("2020-01-01 open income:salary USD")?,
             (
                 "",
                 Expr::Open(
@@ -320,10 +340,10 @@ mod tests {
     #[test]
     fn test_parse_movement() -> Result<()> {
         assert_eq!(
-            movement("- 300 BRL equity:initial_balance")?,
+            movement("> 300 BRL equity:initial_balance")?,
             (
                 "",
-                Movement::Debit(
+                Movement::Credit(
                     Account::Equity("initial_balance".into()),
                     Money {
                         amount: 300.0,
@@ -334,10 +354,10 @@ mod tests {
         );
 
         assert_eq!(
-            movement("+ 300 BRL assets:cash_account")?,
+            movement("< 300 BRL assets:cash_account")?,
             (
                 "",
-                Movement::Credit(
+                Movement::Debit(
                     Account::Assets("cash_account".into()),
                     Money {
                         amount: 300.0,
@@ -352,18 +372,18 @@ mod tests {
     #[test]
     fn test_parse_movement_list() -> Result<()> {
         assert_eq!(
-            movement_list("- 300 BRL equity:initial_balance\r\n + 300 BRL assets:cash_account")?,
+            movement_list("> 300 BRL equity:initial_balance\r\n < 300 BRL assets:cash_account")?,
             (
                 "",
                 vec![
-                    Movement::Debit(
+                    Movement::Credit(
                         Account::Equity("initial_balance".into()),
                         Money {
                             amount: 300.0,
                             currency: "BRL".into()
                         }
                     ),
-                    Movement::Credit(
+                    Movement::Debit(
                         Account::Assets("cash_account".into()),
                         Money {
                             amount: 300.0,
@@ -412,7 +432,7 @@ mod tests {
         ];
 
         assert_eq!(
-            expr("2020-01-02 transaction Set up initial cash account balance\r\n  - 300 BRL equity:initial_balance\r\n  + 300 BRL assets:cash_account")?,
+            expr("2020-01-02 transaction Set up initial cash account balance\r\n  < 300 BRL equity:initial_balance\r\n  > 300 BRL assets:cash_account")?,
             (
                 "",
                 Expr::Transaction(
@@ -424,7 +444,7 @@ mod tests {
             );
 
         assert_eq!(
-            expr("2020-01-02 transaction Set up initial cash account balance\n  - 300 BRL equity:initial_balance\n  + 300 BRL assets:cash_account")?,
+            expr("2020-01-02 transaction Set up initial cash account balance\n  < 300 BRL equity:initial_balance\n  > 300 BRL assets:cash_account")?,
             (
                 "",
                 Expr::Transaction(
@@ -447,12 +467,12 @@ mod tests {
     #[test]
     fn test_parse_single_transaction_file() -> Result<()> {
         assert_eq!(
-            parse_string("\n 2020-01-01 open assets:cash_account 100 BRL")?,
+            parse_string("\n 2020-01-01 open assets:cash_account BRL")?,
             vec![Expr::Open(
                 NaiveDate::from_ymd(2020, 1, 1),
                 Account::Assets("cash_account".into()),
                 Money {
-                    amount: 100.0,
+                    amount: 0.0,
                     currency: "BRL".into()
                 }
             )]
@@ -468,7 +488,7 @@ mod tests {
                 NaiveDate::from_ymd(2020, 1, 1),
                 Account::Assets("cash_account".into()),
                 Money {
-                    amount: 100.0,
+                    amount: 0.0,
                     currency: "BRL".into(),
                 },
             ),
@@ -500,7 +520,7 @@ mod tests {
 
         assert_eq!(
             parse_string(
-                "\n    2020-01-01 open assets:cash_account 100 BRL\n 2020-01-01 balance assets:cash_account 100 BRL\n 2020-01-01 open expenses:stuff 0 BRL\n 2020-01-01 balance expenses:stuff 0 BRL\n\n
+                "\n    2020-01-01 open assets:cash_account BRL\n 2020-01-01 balance assets:cash_account 100 BRL\n 2020-01-01 open expenses:stuff BRL\n 2020-01-01 balance expenses:stuff 0 BRL\n\n
                  "
                  )?,
                  transactions
@@ -516,7 +536,7 @@ mod tests {
                 NaiveDate::from_ymd(2020, 01, 01),
                 Account::Assets("cash_account".into()),
                 Money {
-                    amount: 100.0,
+                    amount: 0.0,
                     currency: "BRL".into(),
                 },
             ),
@@ -565,8 +585,9 @@ mod tests {
                 ],
             ),
         ];
+
         assert_eq!(
-            parse_string("\n 2020-01-01 open assets:cash_account 100 BRL\n 2020-01-01 balance assets:cash_account 100 BRL\n\n 2020-01-01 open expenses:stuff 0 BRL\n 2020-01-01 balance expenses:stuff 0 BRL\n\n 2020-01-02 transaction Buy some books\n - 100 BRL assets:cash_account\n + 100 BRL expenses:stuff\n "
+            parse_string("\n 2020-01-01 open assets:cash_account BRL\n 2020-01-01 balance assets:cash_account 100 BRL\n\n 2020-01-01 open expenses:stuff BRL\n 2020-01-01 balance expenses:stuff 0 BRL\n\n 2020-01-02 transaction Buy some books\n < 100 BRL assets:cash_account\n > 100 BRL expenses:stuff\n "
                         )?,
                         transactions
                   );
