@@ -1,37 +1,47 @@
 use std::collections::BTreeMap;
 
-use anyhow::{ Result, bail };
+use anyhow::{bail, Result};
 use chrono::prelude::*;
 
-use hortela::parser::{self, Expr, Account, Money};
+use hortela::{
+    ledger::{Transaction, Ledger},
+    money::Money,
+    parser::{self, Expr},
+};
 
 struct AccountRef {
     since: NaiveDate,
-    balance: Money
+    balance: Money,
 }
 
 fn main() -> Result<()> {
     let parsed = parser::parse_file("test_cases/01-index.hortela")?;
-    let mut accounts = BTreeMap::new();
+    let mut result: Vec<Transaction> = vec![];
 
-    for expr in parsed.into_iter() {
+    for (id, expr) in parsed.into_iter().enumerate() {
         match expr {
-            Expr::Open(date, acc, balance) => {
-                accounts.insert(acc.clone(), AccountRef { since: date, balance });
-            },
-            Expr::Balance(_date, acc, expected) => {
-                match accounts.get(&acc) {
-                    Some(acc_ref) => {
-                        if acc_ref.balance != expected {
-                            bail!("Account balance does not match, expected {:?}, got {:?}", expected, acc_ref.balance);
-                        }
-                    }
-                    None => bail!("Account {:?} is not initialized", acc)
+            Expr::Open(_date, _acc, _balance) => {
+                eprintln!("Not implemented yet, ignoring");
+            }
+            Expr::Balance(_date, _acc, _expected) => {
+                eprintln!("Not implemented yet, ignoring");
+            }
+            Expr::Transaction(date, desc, movements) => {
+                for (mov_id, movement) in movements.into_iter().enumerate() {
+                    let transaction = movement.to_transaction(
+                        (id * 100 + mov_id) as u64,
+                        date,
+                        desc.clone(),
+                    );
+
+                    result.push(transaction);
                 }
             }
-            _ => {}
         }
     }
+
+    let ledger: Ledger = result.into();
+    ledger.validate()?;
 
     println!("Ok");
 
