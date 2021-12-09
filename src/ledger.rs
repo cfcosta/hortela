@@ -1,9 +1,17 @@
-use std::ops::Not;
+use std::ops::{Not, BitAnd};
 
-use chrono::NaiveDate;
+use anyhow::bail;
+use chrono::{NaiveDate, NaiveDateTime};
 use polars::prelude::*;
 
-use crate::validate::ALL_VALIDATORS;
+use crate::{account::Account, money::Money, validate::ALL_VALIDATORS};
+
+#[derive(Debug)]
+pub struct BalanceVerification {
+    pub account: Account,
+    pub date: NaiveDate,
+    pub expected: Money,
+}
 
 pub struct Transaction {
     pub id: u64,
@@ -93,6 +101,15 @@ impl From<Vec<Transaction>> for Ledger {
     }
 }
 
+fn date_to_arrow_datatype(date: NaiveDate) -> i32 {
+    let unix_epoch = NaiveDate::from_ymd(1970, 1, 1).and_hms(0, 0, 0);
+    let time = date.and_hms(0, 0, 0);
+
+    let duration = time - NaiveDateTime::from(unix_epoch);
+
+    duration.num_days() as i32
+}
+
 impl Ledger {
     pub fn credits(&self) -> Result<DataFrame> {
         let df = self.all()?;
@@ -109,6 +126,7 @@ impl Ledger {
 
         DataFrame::new(vec![
             data.id,
+            data.date,
             data.account_kind,
             data.account_name,
             data.amount,
@@ -129,6 +147,35 @@ impl Ledger {
                     println!(" ERROR");
                     e?
                 }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn validate_balances(&self, list: Vec<BalanceVerification>) -> Result<()> {
+        for verifier in list {
+            let df = self.all()?;
+
+            let (name, kind) = verifier.account.parts().clone();
+            let (name, kind): (&str, &str) = (&name, &kind);
+
+            let kind_mask = df
+                .column("ledger.account_kind")?
+                .equal(kind);
+
+            let name_mask = df
+                .column("ledger.account_name")?
+                .equal(name);
+            
+            let date_mask = df.column("ledger.date")?.date()?.lt_eq(date_to_arrow_datatype(verifier.date));
+
+            let filtered = df.filter(&kind_mask.bitand(name_mask).bitand(date_mask))?;
+
+            let sum = filtered.column("ledger.signed_amount")?.f64()?.sum().unwrap_or(0.0);
+
+            if sum != verifier.expected.amount {
+                panic!("Balances do not match, expected {}, got {}", verifier.expected.amount, sum);
             }
         }
 

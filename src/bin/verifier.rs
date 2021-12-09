@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use hortela::{
     account::Account,
-    ledger::{Ledger, Transaction},
+    ledger::{BalanceVerification, Ledger, Transaction},
     money::Movement,
     parser::{self, Expr},
 };
@@ -10,6 +10,7 @@ use hortela::{
 fn main() -> Result<()> {
     let parsed = parser::parse_file("test_cases/01-index.hortela")?;
     let mut result: Vec<Transaction> = vec![];
+    let mut verifications: Vec<BalanceVerification> = vec![];
     let mut id: u64 = 1;
 
     for expr in parsed.into_iter() {
@@ -33,8 +34,12 @@ fn main() -> Result<()> {
                     id += 1;
                 }
             }
-            Expr::Balance(_date, _acc, _expected) => {
-                eprintln!("Not implemented yet, ignoring");
+            Expr::Balance(date, account, expected) => {
+                verifications.push(BalanceVerification {
+                    date,
+                    account,
+                    expected,
+                });
             }
             Expr::Transaction(date, desc, movements) => {
                 for movement in movements.into_iter() {
@@ -49,10 +54,11 @@ fn main() -> Result<()> {
     }
 
     let ledger: Ledger = result.into();
-    dbg!(ledger.all()?);
+    ledger.all()?;
+    println!("Validating transactions internal state...");
     ledger.validate()?;
-
-    println!("Ok");
+    println!("Validating balance statements...");
+    ledger.validate_balances(verifications)?;
 
     Ok(())
 }
