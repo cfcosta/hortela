@@ -8,7 +8,7 @@ use hortela::{
 };
 
 fn main() -> Result<()> {
-    let parsed = parser::parse_file("test_cases/01-index.hortela")?;
+    let parsed = parser::parse_file("test_cases/01-index.hta")?;
     let mut result: Vec<Transaction> = vec![];
     let mut verifications: Vec<BalanceVerification> = vec![];
     let mut id: u64 = 1;
