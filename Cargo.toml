@@ -11,7 +11,10 @@ chrono = "0.4.19"
 nom = "7.1.0"
 nom_locate = "4.0.0"
 polars = "0.18.0"
+thiserror = "1.0.30"
 
 [[bin]]
 name = "hortela-verify"
 path = "src/bin/verifier.rs"
+
+[features]

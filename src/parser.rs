@@ -12,7 +12,7 @@ use nom::{
     IResult,
 };
 
-use crate::{ account::*, money::* };
+use crate::{account::*, money::*};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expr {
@@ -73,6 +73,7 @@ fn identifier(input: &str) -> IResult<&str, &str> {
 fn account(input: &str) -> IResult<&str, Account> {
     map_res(account_parts, |(acc, _, id)| {
         Ok(match acc {
+            AccountType::Void => Account::Void,
             AccountType::Assets => Account::Assets(id.into()),
             AccountType::Liabilities => Account::Liabilities(id.into()),
             AccountType::Equity => Account::Equity(id.into()),
@@ -108,6 +109,7 @@ fn account_with_balance(input: &str) -> IResult<&str, (Account, Money)> {
             AccountType::Equity => Ok((Account::Equity(id.into()), Money::new(0.0, currency))),
             AccountType::Expenses => Ok((Account::Expenses(id.into()), Money::new(0.0, currency))),
             AccountType::Income => Ok((Account::Income(id.into()), Money::new(0.0, currency))),
+            _ => bail!("Account type not found or internal."),
         },
     )(input)
 }
@@ -353,11 +355,11 @@ mod tests {
         let transactions = vec![
             Movement::Debit(
                 Account::Equity("initial_balance".into()),
-                Money::new(300.0, "BRL".into(),),
+                Money::new(300.0, "BRL".into()),
             ),
             Movement::Credit(
                 Account::Assets("cash_account".into()),
-                Money::new(300.0, "BRL".into(),),
+                Money::new(300.0, "BRL".into()),
             ),
         ];
 
@@ -414,7 +416,7 @@ mod tests {
             Expr::Open(
                 NaiveDate::from_ymd(2020, 1, 1),
                 Account::Assets("cash_account".into()),
-                Money::new(0.0, "BRL".into(),),
+                Money::new(0.0, "BRL".into()),
             ),
             Expr::Balance(
                 NaiveDate::from_ymd(2020, 1, 1),
