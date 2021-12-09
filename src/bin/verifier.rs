@@ -1,4 +1,13 @@
+use std::path::PathBuf;
+
 use anyhow::Result;
+use structopt::StructOpt;
+
+#[derive(StructOpt)]
+pub struct Options {
+    #[structopt(name = "file")]
+    file: PathBuf
+}
 
 use hortela::{
     account::Account,
@@ -8,7 +17,9 @@ use hortela::{
 };
 
 fn main() -> Result<()> {
-    let parsed = parser::parse_file("test_cases/01-index.hta")?;
+    let options = Options::from_args();
+
+    let parsed = parser::parse_file(options.file)?;
     let mut result: Vec<Transaction> = vec![];
     let mut verifications: Vec<BalanceVerification> = vec![];
     let mut id: u64 = 1;

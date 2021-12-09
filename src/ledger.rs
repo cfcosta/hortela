@@ -1,6 +1,5 @@
 use std::ops::{Not, BitAnd};
 
-use anyhow::bail;
 use chrono::{NaiveDate, NaiveDateTime};
 use polars::prelude::*;
 
