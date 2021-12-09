@@ -311,6 +311,7 @@ dependencies = [
  "nom",
  "nom_locate",
  "polars",
+ "thiserror",
 ]
 
 [[package]]
