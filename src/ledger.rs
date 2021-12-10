@@ -1,16 +1,9 @@
-use std::ops::{Not, BitAnd};
+use std::ops::{BitAnd, Not};
 
 use chrono::{NaiveDate, NaiveDateTime};
 use polars::prelude::*;
 
-use crate::{account::Account, money::Money, validate::ALL_VALIDATORS};
-
-#[derive(Debug)]
-pub struct BalanceVerification {
-    pub account: Account,
-    pub date: NaiveDate,
-    pub expected: Money,
-}
+use crate::{validate::ALL_VALIDATORS, BalanceVerification};
 
 pub struct Transaction {
     pub id: u64,
@@ -109,6 +102,10 @@ fn date_to_arrow_datatype(date: NaiveDate) -> i32 {
     duration.num_days() as i32
 }
 
+fn normalize_float(num: f64) -> f64 {
+    (num * 100.0).round() / 100.0
+}
+
 impl Ledger {
     pub fn credits(&self) -> Result<DataFrame> {
         let df = self.all()?;
@@ -154,28 +151,42 @@ impl Ledger {
 
     pub fn validate_balances(&self, list: Vec<BalanceVerification>) -> Result<()> {
         for verifier in list {
+            print!(
+                "Verifying balance for {} on {}...",
+                verifier.account, verifier.date
+            );
+
             let df = self.all()?;
 
             let (name, kind) = verifier.account.parts().clone();
             let (name, kind): (&str, &str) = (&name, &kind);
 
-            let kind_mask = df
-                .column("ledger.account_kind")?
-                .equal(kind);
+            let kind_mask = df.column("ledger.account_kind")?.equal(kind);
 
-            let name_mask = df
-                .column("ledger.account_name")?
-                .equal(name);
-            
-            let date_mask = df.column("ledger.date")?.date()?.lt_eq(date_to_arrow_datatype(verifier.date));
+            let name_mask = df.column("ledger.account_name")?.equal(name);
+
+            let date_mask = df
+                .column("ledger.date")?
+                .date()?
+                .lt_eq(date_to_arrow_datatype(verifier.date));
 
             let filtered = df.filter(&kind_mask.bitand(name_mask).bitand(date_mask))?;
 
-            let sum = filtered.column("ledger.signed_amount")?.f64()?.sum().unwrap_or(0.0);
+            let sum = filtered
+                .column("ledger.signed_amount")?
+                .f64()?
+                .sum()
+                .unwrap_or(0.0);
 
-            if sum != verifier.expected.amount {
-                panic!("Balances do not match, expected {}, got {}", verifier.expected.amount, sum);
+            if normalize_float(sum) != verifier.expected.amount {
+                println!(" ERROR");
+                panic!(
+                    "Balances do not match, expected {}, got {}",
+                    verifier.expected.amount, sum
+                );
             }
+
+            println!(" OK");
         }
 
         Ok(())

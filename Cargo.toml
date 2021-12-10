@@ -8,10 +8,14 @@ anyhow = "1.0.51"
 chrono = "0.4.19"
 nom = "7.1.0"
 nom_locate = "4.0.0"
-polars = { version = "0.18.0", features = ["temporal", "dtype-date"] }
+polars = { version = "0.18.0", features = ["temporal", "dtype-date", "rows"] }
 structopt = "0.3.25"
 thiserror = "1.0.30"
 
 [[bin]]
 name = "hortela-verify"
 path = "src/bin/verifier.rs"
+
+[[bin]]
+name = "hortela-report"
+path = "src/bin/reporter.rs"
