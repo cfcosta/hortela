@@ -6,6 +6,7 @@ pub mod ledger;
 pub mod money;
 pub mod parser;
 pub mod validate;
+pub mod utils;
 
 use ledger::{Ledger, Transaction};
 use money::{ Movement, Money };

@@ -4,7 +4,7 @@ use anyhow::Result;
 use polars::prelude::*;
 use structopt::StructOpt;
 
-use hortela::{compute_program, parser};
+use hortela::{compute_program, parser, utils};
 
 #[derive(StructOpt)]
 pub struct Options {
@@ -37,24 +37,6 @@ impl Reporter {
     }
 }
 
-fn repeater<T: Clone>(value: T, amount: usize) -> Series
-where
-    Series: FromIterator<T>,
-{
-    Series::from_iter(std::iter::repeat(value).take(amount))
-}
-
-fn round_to_fixed<T: Into<f64>>(series: &Series, precision: T) -> Result<Series> {
-    let repeat100 = repeater(10_f64.powf(precision.into()), series.len());
-
-    Ok(series
-        .f64()?
-        .multiply(&repeat100)?
-        .cast(&DataType::Int64)?
-        .cast(&DataType::Float64)?
-        .divide(&repeat100)?)
-}
-
 fn main() -> Result<()> {
     let options = Options::from_args();
 
@@ -78,26 +60,26 @@ fn main() -> Result<()> {
 
     let void_account = by_account
         .column("ledger.account_kind")?
-        .not_equal(&repeater("void", all.shape().0));
+        .not_equal(&utils::repeater("void", all.shape().0));
     let void_account_kind = by_account_kind
         .column("ledger.account_kind")?
-        .not_equal(&repeater("void", all.shape().0));
+        .not_equal(&utils::repeater("void", all.shape().0));
 
     by_account.replace(
         "ledger.amount_sum",
-        round_to_fixed(by_account.column("ledger.amount_sum")?, 2)?,
+        utils::round_to_fixed(by_account.column("ledger.amount_sum")?, 2)?,
     )?;
     by_account_kind.replace(
         "ledger.amount_sum",
-        round_to_fixed(by_account_kind.column("ledger.amount_sum")?, 2)?,
+        utils::round_to_fixed(by_account_kind.column("ledger.amount_sum")?, 2)?,
     )?;
     by_account.replace(
         "ledger.signed_amount_sum",
-        round_to_fixed(by_account.column("ledger.signed_amount_sum")?, 2)?,
+        utils::round_to_fixed(by_account.column("ledger.signed_amount_sum")?, 2)?,
     )?;
     by_account_kind.replace(
         "ledger.signed_amount_sum",
-        round_to_fixed(by_account_kind.column("ledger.signed_amount_sum")?, 2)?,
+        utils::round_to_fixed(by_account_kind.column("ledger.signed_amount_sum")?, 2)?,
     )?;
 
     by_account = by_account.filter(&void_account)?;
