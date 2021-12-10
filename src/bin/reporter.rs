@@ -37,56 +37,40 @@ impl Reporter {
     }
 }
 
-fn main() -> Result<()> {
-    let options = Options::from_args();
-
-    let (ledger, _) = compute_program(parser::parse_file(options.reporter.file())?)?;
-
-    let all = ledger.all()?;
-
-    let transactions = all.select(&[
-        "ledger.account_kind",
-        "ledger.account_name",
-        "ledger.amount",
-        "ledger.currency",
-        "ledger.signed_amount",
-    ])?;
-
-    let mut by_account = transactions
+fn sums_by_account(df: &DataFrame, amount_column_name: &str) -> Result<DataFrame> {
+    let mut sums = df
+        .clone()
         .groupby(&["ledger.account_kind", "ledger.account_name"])?
         .sum()?;
 
-    let mut by_account_kind = transactions.groupby("ledger.account_kind")?.sum()?;
-
-    let void_account = by_account
-        .column("ledger.account_kind")?
-        .not_equal(&utils::repeater("void", all.shape().0));
-    let void_account_kind = by_account_kind
-        .column("ledger.account_kind")?
-        .not_equal(&utils::repeater("void", all.shape().0));
-
-    by_account.replace(
+    sums.replace(
         "ledger.amount_sum",
-        utils::round_to_fixed(by_account.column("ledger.amount_sum")?, 2)?,
+        utils::round_to_fixed(sums.column("ledger.amount_sum")?, 2)?,
     )?;
-    by_account_kind.replace(
+
+    sums.rename(
         "ledger.amount_sum",
-        utils::round_to_fixed(by_account_kind.column("ledger.amount_sum")?, 2)?,
-    )?;
-    by_account.replace(
-        "ledger.signed_amount_sum",
-        utils::round_to_fixed(by_account.column("ledger.signed_amount_sum")?, 2)?,
-    )?;
-    by_account_kind.replace(
-        "ledger.signed_amount_sum",
-        utils::round_to_fixed(by_account_kind.column("ledger.signed_amount_sum")?, 2)?,
+        &format!("ledger.{}", amount_column_name),
     )?;
 
-    by_account = by_account.filter(&void_account)?;
-    by_account_kind = by_account_kind.filter(&void_account_kind)?;
+    Ok(sums)
+}
 
-    dbg!(by_account);
-    dbg!(by_account_kind);
+fn main() -> Result<()> {
+    let options = Options::from_args();
+    let (ledger, _) = compute_program(parser::parse_file(options.reporter.file())?)?;
+
+    dbg!(sums_by_account(&ledger.credits()?, "credits")?.columns(&[
+        "ledger.account_kind",
+        "ledger.account_name",
+        "ledger.credits"
+    ])?);
+
+    dbg!(sums_by_account(&ledger.debits()?, "debits")?.columns(&[
+        "ledger.account_kind",
+        "ledger.account_name",
+        "ledger.debits"
+    ])?);
 
     Ok(())
 }
