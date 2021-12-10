@@ -1,6 +1,6 @@
 use std::{fs, path::Path};
 
-use anyhow::{bail, Ok, Result};
+use anyhow::{Ok, Result};
 use chrono::prelude::*;
 use nom::{
     branch::alt,
@@ -16,7 +16,7 @@ use crate::{account::*, money::*};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expr {
-    Open(NaiveDate, Account, Money),
+    Open(NaiveDate, Account, String),
     Balance(NaiveDate, Account, Money),
     Transaction(NaiveDate, String, Vec<Movement>),
 }
@@ -73,7 +73,6 @@ fn identifier(input: &str) -> IResult<&str, &str> {
 fn account(input: &str) -> IResult<&str, Account> {
     map_res(account_parts, |(acc, _, id)| {
         Ok(match acc {
-            AccountType::Void => Account::Void,
             AccountType::Assets => Account::Assets(id.into()),
             AccountType::Liabilities => Account::Liabilities(id.into()),
             AccountType::Equity => Account::Equity(id.into()),
@@ -87,29 +86,15 @@ fn account_parts(input: &str) -> IResult<&str, (AccountType, &str, &str)> {
     tuple((account_type, tag(":"), identifier))(input)
 }
 
-fn account_with_currency(input: &str) -> IResult<&str, (Account, Money)> {
-    map_res(
-        tuple((account_parts, space1, money)),
-        |((acc, _, id), _, money)| match acc {
-            AccountType::Liabilities => Ok((Account::Liabilities(id.into()), money)),
-            AccountType::Equity => Ok((Account::Equity(id.into()), money)),
-            _ => bail!("Only liabilities and equity accounts can start with balances."),
-        },
-    )(input)
-}
-
-fn account_with_balance(input: &str) -> IResult<&str, (Account, Money)> {
+fn account_with_currency(input: &str) -> IResult<&str, (Account, &str)> {
     map_res(
         tuple((account_parts, space1, currency)),
         |((acc, _, id), _, currency)| match acc {
-            AccountType::Assets => Ok((Account::Assets(id.into()), Money::new(0.0, currency))),
-            AccountType::Liabilities => {
-                Ok((Account::Liabilities(id.into()), Money::new(0.0, currency)))
-            }
-            AccountType::Equity => Ok((Account::Equity(id.into()), Money::new(0.0, currency))),
-            AccountType::Expenses => Ok((Account::Expenses(id.into()), Money::new(0.0, currency))),
-            AccountType::Income => Ok((Account::Income(id.into()), Money::new(0.0, currency))),
-            _ => bail!("Account type not found or internal."),
+            AccountType::Assets => Ok((Account::Assets(id.into()), currency)),
+            AccountType::Liabilities => Ok((Account::Liabilities(id.into()), currency)),
+            AccountType::Equity => Ok((Account::Equity(id.into()), currency)),
+            AccountType::Expenses => Ok((Account::Expenses(id.into()), currency)),
+            AccountType::Income => Ok((Account::Income(id.into()), currency)),
         },
     )(input)
 }
@@ -169,12 +154,8 @@ fn expr_transaction(input: &str) -> IResult<&str, Expr> {
 
 fn expr_open(input: &str) -> IResult<&str, Expr> {
     map_res(
-        tuple((
-            single_expr("open"),
-            space1,
-            alt((account_with_balance, account_with_currency)),
-        )),
-        |(date, _, (acc, money))| Ok(Expr::Open(date, acc, money)),
+        tuple((single_expr("open"), space1, account_with_currency)),
+        |(date, _, (acc, currency))| Ok(Expr::Open(date, acc, currency.to_string())),
     )(input)
 }
 
@@ -264,7 +245,7 @@ mod tests {
                 Expr::Open(
                     NaiveDate::from_ymd(2020, 01, 01),
                     Account::Income("salary".into()),
-                    Money::new(0.0, "USD".into())
+                    "USD".into()
                 )
             )
         );
@@ -403,7 +384,7 @@ mod tests {
             vec![Expr::Open(
                 NaiveDate::from_ymd(2020, 1, 1),
                 Account::Assets("cash_account".into()),
-                Money::new(0.0, "BRL".into())
+                "BRL".into()
             )]
         );
 
@@ -416,7 +397,7 @@ mod tests {
             Expr::Open(
                 NaiveDate::from_ymd(2020, 1, 1),
                 Account::Assets("cash_account".into()),
-                Money::new(0.0, "BRL".into()),
+                "BRL".into(),
             ),
             Expr::Balance(
                 NaiveDate::from_ymd(2020, 1, 1),
@@ -429,10 +410,7 @@ mod tests {
             Expr::Open(
                 NaiveDate::from_ymd(2020, 1, 1),
                 Account::Expenses("stuff".into()),
-                Money {
-                    amount: 0.0,
-                    currency: "BRL".into(),
-                },
+                "BRL".into(),
             ),
             Expr::Balance(
                 NaiveDate::from_ymd(2020, 1, 1),
@@ -461,10 +439,7 @@ mod tests {
             Expr::Open(
                 NaiveDate::from_ymd(2020, 01, 01),
                 Account::Assets("cash_account".into()),
-                Money {
-                    amount: 0.0,
-                    currency: "BRL".into(),
-                },
+                "BRL".into(),
             ),
             Expr::Balance(
                 NaiveDate::from_ymd(2020, 01, 01),
@@ -477,10 +452,7 @@ mod tests {
             Expr::Open(
                 NaiveDate::from_ymd(2020, 01, 01),
                 Account::Expenses("stuff".into()),
-                Money {
-                    amount: 0.0,
-                    currency: "BRL".into(),
-                },
+                "BRL".into(),
             ),
             Expr::Balance(
                 NaiveDate::from_ymd(2020, 01, 01),

@@ -42,25 +42,7 @@ pub fn compute_program(program: Vec<Expr>) -> Result<(Ledger, LedgerContext)> {
 
     for expr in program.into_iter() {
         match expr {
-            Expr::Open(date, acc, balance) => {
-                if balance.amount != 0.0 {
-                    result.push(
-                        Movement::debit(Account::void(), balance.clone()).to_transaction(
-                            id as u64,
-                            date,
-                            String::from("Account opening"),
-                        ),
-                    );
-                    id += 1;
-
-                    result.push(Movement::credit(acc, balance).to_transaction(
-                        id as u64,
-                        date,
-                        String::from("Account opening"),
-                    ));
-                    id += 1;
-                }
-            }
+            Expr::Open(_date, _acc, _balance) => {}
             Expr::Balance(date, account, expected) => {
                 context.balance_verifications.push(BalanceVerification {
                     date,
