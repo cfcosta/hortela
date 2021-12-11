@@ -1,8 +1,8 @@
-use std::fmt::{self, Display};
+use std::{fmt::{self, Display}, collections::VecDeque};
 
 use crate::money::MovementKind;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
 pub enum AccountType {
     Assets,
     Liabilities,
@@ -11,55 +11,53 @@ pub enum AccountType {
     Expenses,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
-pub enum Account {
-    Assets(String),
-    Liabilities(String),
-    Income(String),
-    Equity(String),
-    Expenses(String),
-}
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct Account(pub AccountType, pub Vec<String>);
 
 impl Display for Account {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::Assets(name) => write!(f, "assets:{}", name),
-            Self::Liabilities(name) => write!(f, "liabilities:{}", name),
-            Self::Income(name) => write!(f, "income:{}", name),
-            Self::Equity(name) => write!(f, "equity:{}", name),
-            Self::Expenses(name) => write!(f, "expenses:{}", name),
+        match self.0 {
+            AccountType::Assets => write!(f, "assets:{}", self.1.join(":")),
+            AccountType::Liabilities => write!(f, "liabilities:{}", self.1.join(":")),
+            AccountType::Income => write!(f, "income:{}", self.1.join(":")),
+            AccountType::Equity => write!(f, "equity:{}", self.1.join(":")),
+            AccountType::Expenses => write!(f, "expenses:{}", self.1.join(":")),
         }
     }
 }
 
 impl Account {
-    pub fn parts(&self) -> (String, String) {
-        let (kind, name) = match self {
-            Self::Assets(name) => (String::from("assets"), name.clone()),
-            Self::Liabilities(name) => (String::from("liabilities"), name.clone()),
-            Self::Income(name) => (String::from("income"), name.clone()),
-            Self::Equity(name) => (String::from("equity"), name.clone()),
-            Self::Expenses(name) => (String::from("expenses"), name.clone()),
-        };
+    pub fn parts(&self) -> Vec<String> {
+        let mut parts = VecDeque::from(self.1.clone());
 
-        (name.clone(), kind.clone())
+        let kind = match self.0 {
+            AccountType::Assets => "assets",
+            AccountType::Liabilities => "liabilities",
+            AccountType::Income => "income",
+            AccountType::Equity => "equity",
+            AccountType::Expenses => "expenses",
+        }.into();
+
+        parts.push_front(kind);
+
+        parts.into()
     }
 
-    pub fn signed_factor(&self, movement_kind: MovementKind) -> isize {
+    pub fn signed_factor(&self, movement_kind: MovementKind) -> i64 {
         match movement_kind {
-            MovementKind::Debit => match self {
-                Account::Assets(_) => 1,
-                Account::Liabilities(_) => -1,
-                Account::Income(_) => -1,
-                Account::Equity(_) => -1,
-                Account::Expenses(_) => 1,
+            MovementKind::Debit => match self.0 {
+                AccountType::Assets => 1,
+                AccountType::Liabilities => -1,
+                AccountType::Income => -1,
+                AccountType::Equity => -1,
+                AccountType::Expenses => 1,
             },
-            MovementKind::Credit => match self {
-                Account::Assets(_) => -1,
-                Account::Liabilities(_) => 1,
-                Account::Income(_) => 1,
-                Account::Equity(_) => 1,
-                Account::Expenses(_) => -1,
+            MovementKind::Credit => match self.0 {
+                AccountType::Assets => -1,
+                AccountType::Liabilities => 1,
+                AccountType::Income => 1,
+                AccountType::Equity => 1,
+                AccountType::Expenses => -1,
             },
         }
     }

@@ -2,87 +2,80 @@ use chrono::NaiveDate;
 
 use crate::{account::Account, ledger::Transaction};
 
-#[derive(Debug, PartialEq, Clone, Default)]
-pub struct Money {
-    pub amount: f64,
-    pub currency: String,
-}
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct Money(pub i64, pub Currency);
 
 impl Money {
-    pub fn new(amount: f64, currency: &str) -> Self {
-        Self {
-            amount,
-            currency: currency.into(),
-        }
+    pub fn new(amount: i64, currency: &str) -> Self {
+        Self(amount, currency.into())
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum Movement {
-    Credit(Account, Money),
-    Debit(Account, Money),
+#[derive(PartialEq, Eq, Clone, Debug, Hash)]
+pub struct Currency(String);
+
+impl From<Currency> for String {
+    fn from(val: Currency) -> Self {
+        val.0
+    }
 }
+
+impl From<String> for Currency {
+    fn from(val: String) -> Self {
+        Self(val.to_string())
+    }
+}
+
+impl From<&str> for Currency {
+    fn from(val: &str) -> Self {
+        Self::from(val.to_string())
+    }
+}
+
+#[derive(Debug, PartialEq, Clone, Eq, Hash)]
+pub enum MovementKind {
+    Credit,
+    Debit,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
+pub struct Movement(pub MovementKind, pub Money, pub Account);
 
 impl Movement {
     pub fn credit(acc: Account, money: Money) -> Self {
-        Self::Credit(acc, money)
+        Self(MovementKind::Credit, money, acc)
     }
 
     pub fn debit(acc: Account, money: Money) -> Self {
-        Self::Debit(acc, money)
+        Self(MovementKind::Debit, money, acc)
     }
 
     pub fn acc<'a>(&'a self) -> Account {
-        match self {
-            Self::Credit(acc, _) => acc,
-            Self::Debit(acc, _) => acc,
-        }
-        .clone()
+        self.2.clone()
     }
 
     pub fn amount<'a>(&'a self) -> Money {
-        match self {
-            Self::Credit(_, money) => money,
-            Self::Debit(_, money) => money,
-        }
-        .clone()
+        self.1.clone()
     }
 
     pub fn is_credit(&self) -> bool {
-        match self {
-            Movement::Credit(..) => true,
-            Movement::Debit(..) => false,
-        }
-    }
-
-    fn kind(&self) -> MovementKind {
-        match self {
-            Self::Credit(..) => MovementKind::Credit,
-            Self::Debit(..) => MovementKind::Debit,
-        }
+        self.0 == MovementKind::Credit
     }
 
     pub fn to_transaction(self, id: u64, date: NaiveDate, description: String) -> Transaction {
-        let money = self.amount();
-        let (currency, amount) = (money.currency, money.amount);
-        let (account_name, account_kind) = self.acc().parts();
+        let Money(amount, currency) = self.1.clone();
+        let parts = self.2.parts();
 
         Transaction {
             id,
             date,
             description,
-            account_name,
-            account_kind,
+            account_parts: parts.clone(),
+            account_name: parts.join(":"),
             amount,
-            currency,
-            signed_amount: amount * (self.acc().signed_factor(self.kind()) as f64),
+            currency: currency.into(),
+            signed_amount: amount * (self.2.signed_factor(self.0.clone())),
             is_credit: self.is_credit(),
         }
     }
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub enum MovementKind {
-    Credit,
-    Debit,
 }
