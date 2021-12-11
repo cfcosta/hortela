@@ -1,17 +1,17 @@
-use chrono::prelude::*;
 use anyhow::Result;
+use chrono::prelude::*;
 
 pub mod account;
 pub mod ledger;
 pub mod money;
 pub mod parser;
-pub mod validate;
 pub mod utils;
+pub mod validate;
 
-use ledger::{Ledger, Transaction};
-use money::{ Movement, Money };
-use parser::Expr;
 use account::Account;
+use ledger::{Ledger, Transaction};
+use money::Money;
+use parser::Expr;
 
 #[derive(Debug)]
 pub struct BalanceVerification {
@@ -25,7 +25,7 @@ impl BalanceVerification {
         Self {
             account,
             date,
-            expected
+            expected,
         }
     }
 }

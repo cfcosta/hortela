@@ -2,7 +2,7 @@ use std::fmt::{self, Display};
 
 use crate::money::MovementKind;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum AccountType {
     Assets,
     Liabilities,

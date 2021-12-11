@@ -6,8 +6,7 @@ edition = "2021"
 [dependencies]
 anyhow = "1.0.51"
 chrono = "0.4.19"
-nom = "7.1.0"
-nom_locate = "4.0.0"
+chumsky = "0.6.0"
 polars = { version = "0.18.0", features = ["temporal", "dtype-date", "rows"] }
 structopt = "0.3.25"
 thiserror = "1.0.30"
@@ -19,3 +18,5 @@ path = "src/bin/verifier.rs"
 [[bin]]
 name = "hortela-report"
 path = "src/bin/reporter.rs"
+
+[features]

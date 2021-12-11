@@ -6,13 +6,10 @@ use structopt::StructOpt;
 #[derive(StructOpt)]
 pub struct Options {
     #[structopt(name = "file")]
-    file: PathBuf
+    file: PathBuf,
 }
 
-use hortela::{
-    parser,
-    compute_program
-};
+use hortela::{compute_program, parser};
 
 fn main() -> Result<()> {
     let options = Options::from_args();
