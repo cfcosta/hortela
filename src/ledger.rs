@@ -11,7 +11,7 @@ pub struct Transaction {
     pub description: String,
     pub account_name: String,
     pub account_parts: Vec<String>,
-    pub amount: i64,
+    pub amount: u64,
     pub currency: String,
     pub signed_amount: i64,
     pub is_credit: bool,
@@ -96,7 +96,7 @@ impl From<Vec<Transaction>> for Ledger {
                     .collect::<Vec<_>>(),
             )
             .into_series(),
-            amount: Int64Chunked::new_from_slice(
+            amount: UInt64Chunked::new_from_slice(
                 "ledger.amount",
                 &iter.clone().map(|x| x.amount).collect::<Vec<_>>(),
             )
@@ -161,7 +161,7 @@ impl Ledger {
     pub fn validate(&self) -> Result<()> {
         for (name, validator) in ALL_VALIDATORS {
             print!("Running validator: {}...", name);
-            match validator(self) {
+            match validator(&self.clone()) {
                 Ok(_) => {
                     println!(" OK");
                 }
@@ -196,7 +196,7 @@ impl Ledger {
 
             let sum = filtered
                 .column("ledger.signed_amount")?
-                .i64()?
+                .u64()?
                 .sum()
                 .unwrap_or(0);
 

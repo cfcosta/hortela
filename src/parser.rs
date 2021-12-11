@@ -50,7 +50,10 @@ pub fn parser() -> impl Parser<Token, Vec<Spanned<Expr>>, Error = Simple<Token>>
     let movement_expr = movement
         .then(money_parser)
         .then(account)
-        .map_with_span(|((mov, money), acc), span| (Movement(mov, money, acc), span));
+        .repeated()
+        .at_least(1)
+        .map(|movs| movs.into_iter().map(|((mov, money), acc)| Movement(mov, money, acc)).collect())
+        .map_with_span(|movs, span| (movs, span));
 
     let open_expr = date_parser
         .then(keyword(Keyword::Open))
@@ -67,10 +70,10 @@ pub fn parser() -> impl Parser<Token, Vec<Spanned<Expr>>, Error = Simple<Token>>
     let transaction_expr = date_parser
         .then(keyword(Keyword::Transaction))
         .then(description)
-        .then(movement_expr.repeated().collect::<Vec<_>>())
-        .map_with_span(|(((date, _), desc), movs), span| {
+        .then(movement_expr)
+        .map_with_span(|(((date, _), desc), (movs, _)), span| {
             (
-                Expr::Transaction(date, desc, movs.into_iter().map(|x| x.0).collect()),
+                Expr::Transaction(date, desc, movs),
                 span,
             )
         });
@@ -79,7 +82,7 @@ pub fn parser() -> impl Parser<Token, Vec<Spanned<Expr>>, Error = Simple<Token>>
         .or(balance_expr)
         .or(transaction_expr)
         .repeated()
-        .then_ignore(end())
+        .at_least(1)
 }
 
 pub fn parse_string(input: &str) -> Result<Vec<Spanned<Expr>>> {
@@ -91,15 +94,14 @@ pub fn parse_string(input: &str) -> Result<Vec<Spanned<Expr>>> {
     match tokens {
         Some(l) => {
             let list: Vec<Token> = l.into_iter().map(|(t, _)| t).collect();
-
-            dbg!(&list, errs);
             let (exprs, parse_errs) = parser.parse_recovery(list.as_slice());
 
-            dbg!(exprs, parse_errs);
-
-            Ok(vec![])
+            match exprs {
+                Some(e) => Ok(e),
+                None => panic!("{:?}", parse_errs)
+            }
         }
-        None => panic!("none"),
+        None => panic!("{:?}", errs),
     }
 }
 
@@ -113,18 +115,12 @@ pub fn parse_file<'a, P: AsRef<Path>>(path: P) -> Result<Vec<Spanned<Expr>>> {
 mod tests {
     use super::*;
     use anyhow::Result;
+    use chrono::prelude::*;
 
     #[test]
-    fn test_parse_empty_file() -> Result<()> {
-        assert_eq!(parse_string("")?, vec![]);
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_parse_single_transaction_file() -> Result<()> {
+    fn test_parse_open() -> Result<()> {
         assert_eq!(
-            parse_string("\n 2020-01-01 open assets:cash_account BRL")?,
+            parse_string("2020-01-01 open assets:cash_account BRL")?,
             vec![(
                 Expr::Open(
                     NaiveDate::from_ymd(2020, 1, 1),
@@ -139,7 +135,7 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_simple_transaction_file() -> Result<()> {
+    fn test_parse_multiple_open() -> Result<()> {
         let transactions = Vec::from([
             (
                 Expr::Open(
@@ -160,7 +156,7 @@ mod tests {
         ]);
 
         assert_eq!(
-            parse_string("\n 2020-01-01 open assets:cash_account BRL\n 2020-01-02 open liabilities:credit_card BRL")?,
+            parse_string("2020-01-01 open assets:cash_account BRL\n 2020-01-02 open liabilities:credit_card BRL")?,
            transactions 
         );
 
@@ -169,124 +165,34 @@ mod tests {
 
     #[test]
     fn test_parse_transaction() -> Result<()> {
-        let transactions = Vec::from([
+        use MovementKind::*;
+        use AccountType::*;
+
+        let movements = vec![
+            Movement(Debit, Money::from_float(400.0, "BRL"), Account(Assets, vec!["omg_asset".into()])),
+            Movement(Credit, Money::from_float(400.0, "BRL"), Account(Equity, vec!["omg_equity".into()])),
+        ];
+
+        let transaction = Vec::from([
             (
                 Expr::Transaction(
                     NaiveDate::from_ymd(2020, 1, 1),
                     "Hello World".into(),
-                    vec![]
+                    movements
                 ),
-                0..4,
+                0..11,
             ),
         ]);
 
         assert_eq!(
-            parse_string("\n 2020-01-01 transaction \"hello World\"\n < 400 BRL assets:omg")?,
-           transactions 
+           parse_string("
+                2020-01-01 transaction \"Hello World\"
+                < 400 BRL assets:omg_asset
+                > 400 BRL equity:omg_equity
+           ")?,
+           transaction 
         );
 
         Ok(())
     }
-    //
-    //     #[test]
-    //     fn test_parse_multiple_accounts_file() -> Result<()> {
-    //         let transactions = vec![
-    //             Expr::Open(
-    //                 NaiveDate::from_ymd(2020, 1, 1),
-    //                 Account::Assets("cash_account".into()),
-    //                 "BRL".into(),
-    //             ),
-    //             Expr::Balance(
-    //                 NaiveDate::from_ymd(2020, 1, 1),
-    //                 Account::Assets("cash_account".into()),
-    //                 Money {
-    //                     amount: 100.0,
-    //                     currency: "BRL".into(),
-    //                 },
-    //             ),
-    //             Expr::Open(
-    //                 NaiveDate::from_ymd(2020, 1, 1),
-    //                 Account::Expenses("stuff".into()),
-    //                 "BRL".into(),
-    //             ),
-    //             Expr::Balance(
-    //                 NaiveDate::from_ymd(2020, 1, 1),
-    //                 Account::Expenses("stuff".into()),
-    //                 Money {
-    //                     amount: 0.0,
-    //                     currency: "BRL".into(),
-    //                 },
-    //             ),
-    //         ];
-    //
-    //         assert_eq!(
-    //             parse_string(
-    //                 "\n    2020-01-01 open assets:cash_account BRL\n 2020-01-01 balance assets:cash_account 100 BRL\n 2020-01-01 open expenses:stuff BRL\n 2020-01-01 balance expenses:stuff 0 BRL\n\n
-    //                  "
-    //                  )?,
-    //                  transactions
-    //                  );
-    //
-    //         Ok(())
-    //     }
-    //
-    //     #[test]
-    //     fn test_parse_file() -> Result<()> {
-    //         let transactions = vec![
-    //             Expr::Open(
-    //                 NaiveDate::from_ymd(2020, 01, 01),
-    //                 Account::Assets("cash_account".into()),
-    //                 "BRL".into(),
-    //             ),
-    //             Expr::Balance(
-    //                 NaiveDate::from_ymd(2020, 01, 01),
-    //                 Account::Assets("cash_account".into()),
-    //                 Money {
-    //                     amount: 100.0,
-    //                     currency: "BRL".into(),
-    //                 },
-    //             ),
-    //             Expr::Open(
-    //                 NaiveDate::from_ymd(2020, 01, 01),
-    //                 Account::Expenses("stuff".into()),
-    //                 "BRL".into(),
-    //             ),
-    //             Expr::Balance(
-    //                 NaiveDate::from_ymd(2020, 01, 01),
-    //                 Account::Expenses("stuff".into()),
-    //                 Money {
-    //                     amount: 0.0,
-    //                     currency: "BRL".into(),
-    //                 },
-    //             ),
-    //             Expr::Transaction(
-    //                 NaiveDate::from_ymd(2020, 01, 02),
-    //                 "Buy some books".into(),
-    //                 vec![
-    //                     Movement::Debit(
-    //                         Account::Assets("cash_account".into()),
-    //                         Money {
-    //                             amount: 100.0,
-    //                             currency: "BRL".into(),
-    //                         },
-    //                     ),
-    //                     Movement::Credit(
-    //                         Account::Expenses("stuff".into()),
-    //                         Money {
-    //                             amount: 100.0,
-    //                             currency: "BRL".into(),
-    //                         },
-    //                     ),
-    //                 ],
-    //             ),
-    //         ];
-    //
-    //         assert_eq!(
-    //             parse_string("\n 2020-01-01 open assets:cash_account BRL\n 2020-01-01 balance assets:cash_account 100 BRL\n\n 2020-01-01 open expenses:stuff BRL\n 2020-01-01 balance expenses:stuff 0 BRL\n\n 2020-01-02 transaction Buy some books\n < 100 BRL assets:cash_account\n > 100 BRL expenses:stuff\n "
-    //                         )?,
-    //                         transactions
-    //                   );
-    //
-    //         Ok(())
-    //     }
 }
