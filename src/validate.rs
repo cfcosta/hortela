@@ -6,7 +6,7 @@ use crate::ledger::Ledger;
 #[derive(Debug, Error)]
 pub enum ValidationError {
     #[error("Credits and debits do not match, difference: {0}")]
-    UnmatchedMovements(f64),
+    UnmatchedMovements(u64),
 }
 
 type Validator = fn(&Ledger) -> Result<()>;
@@ -17,16 +17,16 @@ pub static ALL_VALIDATORS: &[(&'static str, Validator)] = &[(
 )];
 
 fn validate_credits_and_debits_balance(ledger: &Ledger) -> Result<()> {
-    let credit_sum: f64 = ledger
+    let credit_sum: u64 = ledger
         .credits()?
         .column("ledger.amount")?
         .sum()
-        .unwrap_or(0.0);
-    let debit_sum: f64 = ledger
+        .unwrap_or(0);
+    let debit_sum: u64 = ledger
         .debits()?
         .column("ledger.amount")?
         .sum()
-        .unwrap_or(0.0);
+        .unwrap_or(0);
 
     if credit_sum != debit_sum {
         bail!(ValidationError::UnmatchedMovements(credit_sum - debit_sum));

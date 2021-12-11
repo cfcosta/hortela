@@ -28,6 +28,11 @@ pub fn parser() -> impl Parser<Token, Vec<Spanned<Expr>>, Error = Simple<Token>>
         _ => Err(Simple::expected_input_found(span, vec![], Some(token))),
     });
 
+    let negative_amount = filter_map(|span, token| match token {
+        Token::NegativeAmount(a) => Ok(a),
+        _ => Err(Simple::expected_input_found(span, vec![], Some(token))),
+    });
+
     let currency = filter_map(|span, token| match token {
         Token::Currency(c) => Ok(c),
         _ => Err(Simple::expected_input_found(span, vec![], Some(token))),
@@ -47,6 +52,10 @@ pub fn parser() -> impl Parser<Token, Vec<Spanned<Expr>>, Error = Simple<Token>>
         .then(currency)
         .map(|(amount, currency)| Money(amount, currency));
 
+    let balance_amount_parser = amount.map(|x| x as i64).or(negative_amount)
+        .then(currency)
+        .map(|(amount, currency)| (amount, currency));
+
     let movement_expr = movement
         .then(money_parser)
         .then(account)
@@ -56,22 +65,22 @@ pub fn parser() -> impl Parser<Token, Vec<Spanned<Expr>>, Error = Simple<Token>>
         .map_with_span(|movs, span| (movs, span));
 
     let open_expr = date_parser
-        .then(keyword(Keyword::Open))
+        .then_ignore(keyword(Keyword::Open))
         .then(account)
         .then(currency)
-        .map_with_span(|(((date, _), acc), cur), span| (Expr::Open(date, acc, cur), span));
+        .map_with_span(|((date, acc), cur), span| (Expr::Open(date, acc, cur), span));
 
     let balance_expr = date_parser
-        .then(keyword(Keyword::Balance))
+        .then_ignore(keyword(Keyword::Balance))
         .then(account)
-        .then(money_parser)
-        .map_with_span(|(((date, _), acc), cur), span| (Expr::Balance(date, acc, cur), span));
+        .then(balance_amount_parser)
+        .map_with_span(|((date, acc), (amount, cur)), span| (Expr::Balance(date, acc, amount, cur), span));
 
     let transaction_expr = date_parser
-        .then(keyword(Keyword::Transaction))
+        .then_ignore(keyword(Keyword::Transaction))
         .then(description)
         .then(movement_expr)
-        .map_with_span(|(((date, _), desc), (movs, _)), span| {
+        .map_with_span(|((date, desc), (movs, _)), span| {
             (
                 Expr::Transaction(date, desc, movs),
                 span,

@@ -110,6 +110,15 @@ fn amount() -> impl Parser<char, Token, Error = Simple<char>> {
     float.or(int)
 }
 
+fn negative_amount() -> impl Parser<char, Token, Error = Simple<char>> {
+    just('-').to(-1).ignore_then(amount()).try_map(|x, span| {
+        match x {
+            Token::Amount(x) => Ok(Token::NegativeAmount(x as i64 * -1)),
+            _ => Err(Simple::custom(span, "Not a valid negative number"))
+        }
+    })
+}
+
 fn movement() -> impl Parser<char, Token, Error = Simple<char>> {
     just('<')
         .to(Token::Movement(MovementKind::Debit))
@@ -135,6 +144,7 @@ pub fn lexer() -> impl Parser<char, Vec<Spanned<Token>>, Error = Simple<char>> {
     let token = date()
         .or(movement())
         .or(account())
+        .or(negative_amount())
         .or(amount())
         .or(keyword())
         .or(currency())
