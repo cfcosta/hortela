@@ -1,4 +1,4 @@
-use std::ops::{BitAnd, Not};
+use std::ops::{ Not, BitAnd };
 
 use chrono::{NaiveDate, NaiveDateTime};
 use polars::prelude::*;
@@ -9,11 +9,11 @@ pub struct Transaction {
     pub id: u64,
     pub date: NaiveDate,
     pub description: String,
-    pub account_kind: String,
     pub account_name: String,
-    pub amount: f64,
+    pub account_parts: Vec<String>,
+    pub amount: i64,
     pub currency: String,
-    pub signed_amount: f64,
+    pub signed_amount: i64,
     pub is_credit: bool,
 }
 
@@ -22,8 +22,11 @@ pub struct Ledger {
     pub id: Series,
     pub date: Series,
     pub description: Series,
-    pub account_kind: Series,
     pub account_name: Series,
+    pub account_name_0: Series,
+    pub account_name_1: Series,
+    pub account_name_2: Series,
+    pub account_name_3: Series,
     pub amount: Series,
     pub currency: Series,
     pub signed_amount: Series,
@@ -57,19 +60,43 @@ impl From<Vec<Transaction>> for Ledger {
                 "ledger.account_name",
                 &iter
                     .clone()
-                    .map(|x| x.account_name.clone())
+                    .map(|x| x.account_parts.join(":"))
                     .collect::<Vec<_>>(),
             )
             .into_series(),
-            account_kind: Utf8Chunked::new_from_slice(
-                "ledger.account_kind",
+            account_name_0: Utf8Chunked::new_from_slice(
+                "ledger.account_name_0",
                 &iter
                     .clone()
-                    .map(|x| x.account_kind.clone())
+                    .map(|x| x.account_parts.get(0).cloned().unwrap_or("".into()))
                     .collect::<Vec<_>>(),
             )
             .into_series(),
-            amount: Float64Chunked::new_from_slice(
+            account_name_1: Utf8Chunked::new_from_slice(
+                "ledger.account_name_1",
+                &iter
+                    .clone()
+                    .map(|x| x.account_parts.get(1).cloned().unwrap_or("".into()))
+                    .collect::<Vec<_>>(),
+            )
+            .into_series(),
+            account_name_2: Utf8Chunked::new_from_slice(
+                "ledger.account_name_2",
+                &iter
+                    .clone()
+                    .map(|x| x.account_parts.get(2).cloned().unwrap_or("".into()))
+                    .collect::<Vec<_>>(),
+            )
+            .into_series(),
+            account_name_3: Utf8Chunked::new_from_slice(
+                "ledger.account_name_3",
+                &iter
+                    .clone()
+                    .map(|x| x.account_parts.get(3).cloned().unwrap_or("".into()))
+                    .collect::<Vec<_>>(),
+            )
+            .into_series(),
+            amount: Int64Chunked::new_from_slice(
                 "ledger.amount",
                 &iter.clone().map(|x| x.amount).collect::<Vec<_>>(),
             )
@@ -79,7 +106,7 @@ impl From<Vec<Transaction>> for Ledger {
                 &iter.clone().map(|x| x.currency.clone()).collect::<Vec<_>>(),
             )
             .into_series(),
-            signed_amount: Float64Chunked::new_from_slice(
+            signed_amount: Int64Chunked::new_from_slice(
                 "ledger.signed_amount",
                 &iter.clone().map(|x| x.signed_amount).collect::<Vec<_>>(),
             )
@@ -102,10 +129,6 @@ fn date_to_arrow_datatype(date: NaiveDate) -> i32 {
     duration.num_days() as i32
 }
 
-fn normalize_float(num: f64) -> f64 {
-    (num * 100.0).round() / 100.0
-}
-
 impl Ledger {
     pub fn credits(&self) -> Result<DataFrame> {
         let df = self.all()?;
@@ -123,8 +146,11 @@ impl Ledger {
         DataFrame::new(vec![
             data.id,
             data.date,
-            data.account_kind,
             data.account_name,
+            data.account_name_0,
+            data.account_name_1,
+            data.account_name_2,
+            data.account_name_3,
             data.amount,
             data.currency,
             data.signed_amount,
@@ -150,39 +176,35 @@ impl Ledger {
     }
 
     pub fn validate_balances(&self, list: Vec<BalanceVerification>) -> Result<()> {
-        for verifier in list {
+        for verification in list {
             print!(
                 "Verifying balance for {} on {}...",
-                verifier.account, verifier.date
+                verification.account, verification.date
             );
 
             let df = self.all()?;
 
-            let (name, kind) = verifier.account.parts().clone();
-            let (name, kind): (&str, &str) = (&name, &kind);
-
-            let kind_mask = df.column("ledger.account_kind")?.equal(kind);
-
-            let name_mask = df.column("ledger.account_name")?.equal(name);
+            let acc: &str = &verification.account;
+            let filter_mask = df.column("ledger.account_name")?.equal(acc);
 
             let date_mask = df
                 .column("ledger.date")?
                 .date()?
-                .lt_eq(date_to_arrow_datatype(verifier.date));
+                .lt_eq(date_to_arrow_datatype(verification.date));
 
-            let filtered = df.filter(&kind_mask.bitand(name_mask).bitand(date_mask))?;
+            let filtered = df.filter(&filter_mask.bitand(date_mask))?;
 
             let sum = filtered
                 .column("ledger.signed_amount")?
-                .f64()?
+                .i64()?
                 .sum()
-                .unwrap_or(0.0);
+                .unwrap_or(0);
 
-            if normalize_float(sum) != verifier.expected.amount {
+            if sum != verification.expected.0 {
                 println!(" ERROR");
                 panic!(
                     "Balances do not match, expected {}, got {}",
-                    verifier.expected.amount, sum
+                    verification.expected.0, sum
                 );
             }
 

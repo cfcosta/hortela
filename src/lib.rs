@@ -5,23 +5,24 @@ pub mod account;
 pub mod ledger;
 pub mod money;
 pub mod parser;
+pub mod lexer;
+pub mod syntax;
 pub mod utils;
 pub mod validate;
 
-use account::Account;
 use ledger::{Ledger, Transaction};
 use money::Money;
-use parser::Expr;
+use syntax::{Expr, Spanned};
 
 #[derive(Debug)]
 pub struct BalanceVerification {
-    pub account: Account,
+    pub account: String,
     pub date: NaiveDate,
     pub expected: Money,
 }
 
 impl BalanceVerification {
-    pub fn new(account: Account, date: NaiveDate, expected: Money) -> Self {
+    pub fn new(account: String, date: NaiveDate, expected: Money) -> Self {
         Self {
             account,
             date,
@@ -35,22 +36,22 @@ pub struct LedgerContext {
     pub balance_verifications: Vec<BalanceVerification>,
 }
 
-pub fn compute_program(program: Vec<Expr>) -> Result<(Ledger, LedgerContext)> {
+pub fn compute_program(program: Vec<Spanned<Expr>>) -> Result<(Ledger, LedgerContext)> {
     let mut context = LedgerContext::default();
     let mut result: Vec<Transaction> = vec![];
     let mut id: u64 = 1;
 
     for expr in program.into_iter() {
         match expr {
-            Expr::Open(_date, _acc, _balance) => {}
-            Expr::Balance(date, account, expected) => {
-                context.balance_verifications.push(BalanceVerification {
+            (Expr::Open(_date, _acc, _balance), _) => {}
+            (Expr::Balance(date, account, expected), _) => {
+                context.balance_verifications.push(BalanceVerification::new(
+                    account.parts().join(":"),
                     date,
-                    account,
                     expected,
-                });
+                ));
             }
-            Expr::Transaction(date, desc, movements) => {
+            (Expr::Transaction(date, desc, movements), _) => {
                 for movement in movements.into_iter() {
                     let transaction = movement.to_transaction(id, date, desc.clone());
 
