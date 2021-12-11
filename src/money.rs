@@ -3,11 +3,19 @@ use chrono::NaiveDate;
 use crate::{account::Account, ledger::Transaction};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Money(pub i64, pub Currency);
+pub struct Money(pub u64, pub Currency);
 
 impl Money {
-    pub fn new(amount: i64, currency: &str) -> Self {
+    pub fn new(amount: u64, currency: &str) -> Self {
         Self(amount, currency.into())
+    }
+
+    pub fn from_float(amount: f64, currency: &str) -> Self {
+        Self((amount * 10f64.powi(8)) as u64, currency.into())
+    }
+
+    pub fn to_float(&self) -> f64 {
+        (self.0 as f64) / 10f64.powi(8) 
     }
 }
 
@@ -74,7 +82,7 @@ impl Movement {
             account_name: parts.join(":"),
             amount,
             currency: currency.into(),
-            signed_amount: amount * (self.2.signed_factor(self.0.clone())),
+            signed_amount: amount as i64 * (self.2.signed_factor(self.0.clone())),
             is_credit: self.is_credit(),
         }
     }

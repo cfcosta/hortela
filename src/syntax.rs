@@ -24,7 +24,7 @@ pub enum Keyword {
 pub enum Token {
     Comment(String),
     Date(NaiveDate),
-    Amount(i64),
+    Amount(u64),
     Description(String),
     Currency(Currency),
     Keyword(Keyword),
@@ -33,7 +33,7 @@ pub enum Token {
 }
 
 impl Token {
-    pub fn amount(&self) -> Option<i64> {
+    pub fn amount(&self) -> Option<u64> {
         match self {
             Self::Amount(a) => Some(*a),
             _ => None,
