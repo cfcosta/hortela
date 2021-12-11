@@ -4,7 +4,7 @@ use anyhow::Result;
 use polars::prelude::*;
 use structopt::StructOpt;
 
-use hortela::{compute_program, parser, utils};
+use hortela::{compute_program, parser};
 
 #[derive(StructOpt)]
 pub struct Options {
@@ -40,13 +40,8 @@ impl Reporter {
 fn sums_by_account(df: &DataFrame, amount_column_name: &str) -> Result<DataFrame> {
     let mut sums = df
         .clone()
-        .groupby(&["ledger.account_kind", "ledger.account_name"])?
+        .groupby("ledger.account_name")?
         .sum()?;
-
-    sums.replace(
-        "ledger.amount_sum",
-        utils::round_to_fixed(sums.column("ledger.amount_sum")?, 2)?,
-    )?;
 
     sums.rename(
         "ledger.amount_sum",
@@ -61,13 +56,13 @@ fn main() -> Result<()> {
     let (ledger, _) = compute_program(parser::parse_file(options.reporter.file())?)?;
 
     dbg!(sums_by_account(&ledger.credits()?, "credits")?.columns(&[
-        "ledger.account_kind",
+        "ledger.account_name_0",
         "ledger.account_name",
         "ledger.credits"
     ])?);
 
     dbg!(sums_by_account(&ledger.debits()?, "debits")?.columns(&[
-        "ledger.account_kind",
+        "ledger.account_name_0",
         "ledger.account_name",
         "ledger.debits"
     ])?);
