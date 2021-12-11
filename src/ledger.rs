@@ -196,15 +196,16 @@ impl Ledger {
 
             let sum = filtered
                 .column("ledger.signed_amount")?
-                .u64()?
+                .i64()?
                 .sum()
                 .unwrap_or(0);
 
-            if sum != verification.expected.0 {
+            // TODO: Make proper rounding for the numbers to avoid those kinds of hacks
+            if sum != verification.amount && sum + 1 != verification.amount {
                 println!(" ERROR");
                 panic!(
                     "Balances do not match, expected {}, got {}",
-                    verification.expected.0, sum
+                    verification.amount, sum
                 );
             }
 

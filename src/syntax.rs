@@ -8,7 +8,7 @@ pub type Spanned<T> = (T, Span);
 #[derive(Debug, PartialEq, Clone)]
 pub enum Expr {
     Open(NaiveDate, Account, Currency),
-    Balance(NaiveDate, Account, Money),
+    Balance(NaiveDate, Account, i64, Currency),
     Transaction(NaiveDate, String, Vec<Movement>),
 }
 
@@ -25,6 +25,7 @@ pub enum Token {
     Comment(String),
     Date(NaiveDate),
     Amount(u64),
+    NegativeAmount(i64),
     Description(String),
     Currency(Currency),
     Keyword(Keyword),

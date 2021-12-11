@@ -11,22 +11,24 @@ pub mod utils;
 pub mod validate;
 
 use ledger::{Ledger, Transaction};
-use money::Money;
+use money::Currency;
 use syntax::{Expr, Spanned};
 
 #[derive(Debug)]
 pub struct BalanceVerification {
     pub account: String,
     pub date: NaiveDate,
-    pub expected: Money,
+    pub amount: i64,
+    pub currency: Currency,
 }
 
 impl BalanceVerification {
-    pub fn new(account: String, date: NaiveDate, expected: Money) -> Self {
+    pub fn new(account: String, date: NaiveDate, amount: i64, currency: Currency) -> Self {
         Self {
             account,
             date,
-            expected,
+            amount,
+            currency
         }
     }
 }
@@ -44,11 +46,12 @@ pub fn compute_program(program: Vec<Spanned<Expr>>) -> Result<(Ledger, LedgerCon
     for expr in program.into_iter() {
         match expr {
             (Expr::Open(_date, _acc, _balance), _) => {}
-            (Expr::Balance(date, account, expected), _) => {
+            (Expr::Balance(date, account, amount, currency), _) => {
                 context.balance_verifications.push(BalanceVerification::new(
                     account.parts().join(":"),
                     date,
-                    expected,
+                    amount,
+                    currency
                 ));
             }
             (Expr::Transaction(date, desc, movements), _) => {
