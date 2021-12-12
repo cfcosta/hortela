@@ -1,4 +1,4 @@
-use std::ops::{ Not, BitAnd };
+use std::ops::{BitAnd, Not};
 
 use chrono::{NaiveDate, NaiveDateTime};
 use polars::prelude::*;

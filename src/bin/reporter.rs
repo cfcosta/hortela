@@ -38,10 +38,7 @@ impl Reporter {
 }
 
 fn sums_by_account(df: &DataFrame, amount_column_name: &str) -> Result<DataFrame> {
-    let mut sums = df
-        .clone()
-        .groupby("ledger.account_name")?
-        .sum()?;
+    let mut sums = df.clone().groupby("ledger.account_name")?.sum()?;
 
     sums.rename(
         "ledger.amount_sum",

@@ -22,11 +22,7 @@ fn validate_credits_and_debits_balance(ledger: &Ledger) -> Result<()> {
         .column("ledger.amount")?
         .sum()
         .unwrap_or(0);
-    let debit_sum: u64 = ledger
-        .debits()?
-        .column("ledger.amount")?
-        .sum()
-        .unwrap_or(0);
+    let debit_sum: u64 = ledger.debits()?.column("ledger.amount")?.sum().unwrap_or(0);
 
     if credit_sum != debit_sum {
         bail!(ValidationError::UnmatchedMovements(credit_sum - debit_sum));
