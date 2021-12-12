@@ -111,12 +111,13 @@ fn amount() -> impl Parser<char, Token, Error = Simple<char>> {
 }
 
 fn negative_amount() -> impl Parser<char, Token, Error = Simple<char>> {
-    just('-').to(-1).ignore_then(amount()).try_map(|x, span| {
-        match x {
+    just('-')
+        .to(-1)
+        .ignore_then(amount())
+        .try_map(|x, span| match x {
             Token::Amount(x) => Ok(Token::NegativeAmount(x as i64 * -1)),
-            _ => Err(Simple::custom(span, "Not a valid negative number"))
-        }
-    })
+            _ => Err(Simple::custom(span, "Not a valid negative number")),
+        })
 }
 
 fn movement() -> impl Parser<char, Token, Error = Simple<char>> {
@@ -140,7 +141,7 @@ pub fn description() -> impl Parser<char, Token, Error = Simple<char>> {
         .map(Token::Description)
 }
 
-pub fn lexer() -> impl Parser<char, Vec<Spanned<Token>>, Error = Simple<char>> {
+pub fn lexer() -> impl Parser<char, Spanned<Vec<Spanned<Token>>>, Error = Simple<char>> {
     let token = date()
         .or(movement())
         .or(account())
@@ -161,9 +162,10 @@ pub fn lexer() -> impl Parser<char, Vec<Spanned<Token>>, Error = Simple<char>> {
 
     token
         .padded_by(comment.repeated())
-        .map_with_span(|tok, span| (tok, span))
         .padded_by(text::whitespace().ignored().or(just('\n').ignored()))
+        .map_with_span(|tok, span| (tok, span))
         .repeated()
+        .map_with_span(|tok, span| (tok, span))
 }
 
 #[cfg(test)]
@@ -304,6 +306,7 @@ mod tests {
                 > 300 BRL equity:omg"
                 )
                 .unwrap()
+                .0
                 .into_iter()
                 .map(|(t, _)| t)
                 .collect::<Vec<Token>>(),

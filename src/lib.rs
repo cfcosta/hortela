@@ -3,16 +3,16 @@ use chrono::prelude::*;
 
 pub mod account;
 pub mod ledger;
+pub mod lexer;
 pub mod money;
 pub mod parser;
-pub mod lexer;
 pub mod syntax;
 pub mod utils;
 pub mod validate;
 
 use ledger::{Ledger, Transaction};
 use money::Currency;
-use syntax::{Expr, Spanned};
+use syntax::{Expr, Span, Spanned};
 
 #[derive(Debug)]
 pub struct BalanceVerification {
@@ -20,15 +20,23 @@ pub struct BalanceVerification {
     pub date: NaiveDate,
     pub amount: i64,
     pub currency: Currency,
+    pub span: Span,
 }
 
 impl BalanceVerification {
-    pub fn new(account: String, date: NaiveDate, amount: i64, currency: Currency) -> Self {
+    pub fn new(
+        account: String,
+        date: NaiveDate,
+        amount: i64,
+        currency: Currency,
+        span: Span,
+    ) -> Self {
         Self {
             account,
             date,
             amount,
-            currency
+            currency,
+            span,
         }
     }
 }
@@ -46,16 +54,17 @@ pub fn compute_program(program: Vec<Spanned<Expr>>) -> Result<(Ledger, LedgerCon
     for expr in program.into_iter() {
         match expr {
             (Expr::Open(_date, _acc, _balance), _) => {}
-            (Expr::Balance(date, account, amount, currency), _) => {
+            (Expr::Balance((date, _), (account, _), (amount, _), (currency, _)), span) => {
                 context.balance_verifications.push(BalanceVerification::new(
                     account.parts().join(":"),
                     date,
                     amount,
-                    currency
+                    currency,
+                    span,
                 ));
             }
-            (Expr::Transaction(date, desc, movements), _) => {
-                for movement in movements.into_iter() {
+            (Expr::Transaction((date, _), (desc, _), (movements, _)), _) => {
+                for (movement, _) in movements.into_iter() {
                     let transaction = movement.to_transaction(id, date, desc.clone());
 
                     result.push(transaction);

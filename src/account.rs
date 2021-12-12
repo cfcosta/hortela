@@ -1,4 +1,7 @@
-use std::{fmt::{self, Display}, collections::VecDeque};
+use std::{
+    collections::VecDeque,
+    fmt::{self, Display},
+};
 
 use crate::money::MovementKind;
 
@@ -36,7 +39,8 @@ impl Account {
             AccountType::Income => "income",
             AccountType::Equity => "equity",
             AccountType::Expenses => "expenses",
-        }.into();
+        }
+        .into();
 
         parts.push_front(kind);
 
