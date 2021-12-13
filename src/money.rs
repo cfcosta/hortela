@@ -1,26 +1,55 @@
 use chrono::NaiveDate;
 
-use crate::{account::Account, ledger::Transaction};
+use crate::{account::Account, ledger::Transaction, syntax::Sign};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-pub struct Money(pub u64, pub Currency);
+pub struct Money {
+    pub amount: u64,
+    pub sign: Sign,
+    pub currency: Currency
+}
 
 impl Money {
-    pub fn new(amount: u64, currency: &str) -> Self {
-        Self(amount, currency.into())
+    pub fn new<T: Into<Currency>>(amount: u64, sign: Sign, currency: T) -> Self {
+        Self { amount, sign, currency: currency.into() }
     }
 
-    pub fn from_float(amount: f64, currency: &str) -> Self {
-        Self((amount * 10f64.powi(8)) as u64, currency.into())
+    pub fn from_float<T: Into<Currency>>(amount: f64, currency: T) -> Self {
+        let sign = if amount < 0.0 { Sign::Negative } else { Sign::Positive };
+        Self {
+            amount: (amount * 10f64.powi(8)) as u64,
+            sign,
+            currency: currency.into()
+        }
+    }
+
+    pub fn from_int<T: Into<Currency>>(amount: i64, currency: T) -> Self {
+        let sign = if amount < 0 { Sign::Negative } else { Sign::Positive };
+        Self {
+            amount: (amount.abs() as i64 * 10i64.pow(8)) as u64,
+            sign,
+            currency: currency.into()
+        }
     }
 
     pub fn to_float(&self) -> f64 {
-        (self.0 as f64) / 10f64.powi(8)
+        (self.amount as f64) / 10f64.powi(8)
+    }
+}
+
+impl std::fmt::Display for Money {
+    // This trait requires `fmt` with this exact signature.
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let sign = if self.sign == Sign::Negative  { -1.0 } else { 1.0 };
+
+        let amount: f64 = self.amount as f64 / 10f64.powi(8) * sign;
+
+        write!(f, "{} {}", amount, self.currency.0)
     }
 }
 
 #[derive(PartialEq, Eq, Clone, Debug, Hash)]
-pub struct Currency(String);
+pub struct Currency(pub String);
 
 impl From<Currency> for String {
     fn from(val: Currency) -> Self {
@@ -71,8 +100,10 @@ impl Movement {
     }
 
     pub fn to_transaction(self, id: u64, date: NaiveDate, description: String) -> Transaction {
-        let Money(amount, currency) = self.1.clone();
+        let Money { amount, sign, currency } = self.1.clone();
         let parts = self.2.parts();
+
+        let sign = if sign == Sign::Negative  { -1 } else { 1 };
 
         Transaction {
             id,
@@ -82,7 +113,7 @@ impl Movement {
             account_name: parts.join(":"),
             amount,
             currency: currency.into(),
-            signed_amount: amount as i64 * (self.2.signed_factor(self.0.clone())),
+            signed_amount: amount as i64 * (self.2.signed_factor(self.0.clone())) * sign,
             is_credit: self.is_credit(),
         }
     }

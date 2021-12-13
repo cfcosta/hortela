@@ -47,6 +47,10 @@ impl Account {
         parts.into()
     }
 
+    pub fn to_string(&self) -> String {
+        self.parts().join(":")
+    }
+
     pub fn signed_factor(&self, movement_kind: MovementKind) -> i64 {
         match movement_kind {
             MovementKind::Debit => match self.0 {
