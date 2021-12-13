@@ -1,6 +1,7 @@
 use std::{fs, path::Path};
 
-use anyhow::Result;
+use anyhow::{bail, Result};
+use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
 use chrono::prelude::*;
 use chumsky::prelude::*;
 use num::{BigRational, ToPrimitive};
@@ -304,29 +305,102 @@ pub fn parser() -> impl Parser<Spanned<Token>, Vec<Spanned<Op>>, Error = Simple<
     ops.repeated().collect().then_ignore(end())
 }
 
-pub fn parse_string(input: &str) -> Result<Vec<Spanned<Op>>> {
+pub fn parse_string(filename: &Path, input: &str) -> Result<Vec<Spanned<Op>>> {
     let lexer = lexer();
     let parser = parser();
 
     let (tokens, errs) = lexer.parse_recovery(input);
+    let (parsed, parse_errs) = match tokens {
+        Some((l, _)) => parser.parse_recovery(l.as_slice()),
+        _ => (Some(vec![]), vec![]),
+    };
 
-    match tokens {
-        Some((l, _)) => {
-            let (parsed, parse_errs) = parser.parse_recovery(l.as_slice());
-
-            match parsed {
-                Some(ops) => Ok(ops),
-                None => panic!("{:?}", parse_errs),
-            }
-        }
-        None => panic!("{:?}", errs),
+    if errs.is_empty() && parse_errs.is_empty() {
+        return Ok(parsed.unwrap());
     }
+
+    errs.into_iter()
+        .map(|e| e.map(|c| (c.to_string(), 0..0)))
+        .chain(
+            parse_errs
+                .into_iter()
+                .map(|e| e.map(|(tok, s)| (tok.to_string(), s))),
+        )
+        .for_each(|e| {
+            let span = e.found().map(|x| x.1.clone()).unwrap_or(e.span());
+            let report = Report::build(ReportKind::Error, (), span.start());
+
+            let report = match e.reason() {
+                chumsky::error::SimpleReason::Unclosed { delimiter: (delimiter, _) , .. } => report
+                    .with_message(format!(
+                        "Unclosed delimiter {}",
+                        delimiter.fg(Color::Yellow)
+                    ))
+                    .with_label(
+                        Label::new(span.clone())
+                            .with_message(format!(
+                                "Unclosed delimiter {}",
+                                delimiter.fg(Color::Yellow)
+                            ))
+                            .with_color(Color::Yellow),
+                    )
+                    .with_label(
+                        Label::new(span)
+                            .with_message(format!(
+                                "Must be closed before this {}",
+                                e.found()
+                                    .map(|x| format!("`{}`", x.0).fg(Color::Green).to_string())
+                                    .unwrap()
+                                    .fg(Color::Red)
+                            ))
+                            .with_color(Color::Red),
+                    ),
+                chumsky::error::SimpleReason::Unexpected => report
+                    .with_message(format!(
+                        "{}, expected {}",
+                        if e.found().is_some() {
+                            "Unexpected token in input"
+                        } else {
+                            "Unexpected end of input"
+                        },
+                        if e.expected().len() == 0 {
+                            "end of input".to_string()
+                        } else {
+                            e.expected()
+                                .map(|x| format!("`{}`", x.0).fg(Color::Green).to_string())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        }
+                    ))
+                    .with_label(
+                        Label::new(span)
+                            .with_message(format!(
+                                "Unexpected token {}",
+                                e.found().map(|x| format!("`{}`", x.0))
+                                    .unwrap_or("end of file".to_string())
+                                    .fg(Color::Red)
+                            ))
+                            .with_color(Color::Blue),
+                    ),
+                chumsky::error::SimpleReason::Custom(msg) => report.with_message(msg).with_label(
+                    Label::new(span)
+                        .with_message(format!("{}", msg.fg(Color::Red)))
+                        .with_color(Color::Red),
+                ),
+            };
+
+            report.finish().eprint(Source::from(&input)).unwrap();
+        });
+
+    bail!("Parse error...")
 }
 
 pub fn parse_file<'a, P: AsRef<Path>>(path: P) -> Result<Vec<Spanned<Op>>> {
-    let input = fs::read_to_string(path)?;
+    let p: &Path = path.as_ref();
 
-    parse_string(&input)
+    let input = fs::read_to_string(p)?;
+
+    parse_string(path.as_ref(), &input)
 }
 
 #[cfg(test)]
@@ -525,12 +599,18 @@ mod tests {
             Movement(
                 MovementKind::Credit,
                 Money::new(int_rational(100), "BRL"),
-                Account(AccountType::Assets, vec!["cash_account".into(), "omg".into()]),
+                Account(
+                    AccountType::Assets,
+                    vec!["cash_account".into(), "omg".into()],
+                ),
             ),
             Movement(
                 MovementKind::Debit,
                 Money::new(int_rational(101), "BRL"),
-                Account(AccountType::Liabilities, vec!["other".into(), "account".into()]),
+                Account(
+                    AccountType::Liabilities,
+                    vec!["other".into(), "account".into()],
+                ),
             ),
         ];
 
