@@ -6,38 +6,37 @@ pub type Span = std::ops::Range<usize>;
 pub type Spanned<T> = (T, Span);
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum CleanExpr {
+pub enum CleanOp {
     Open(NaiveDate, Account, Currency),
-    Balance(NaiveDate, Account, i64, Currency),
+    Balance(NaiveDate, Account, Money),
     Transaction(NaiveDate, String, Vec<Movement>),
 }
 
-impl From<Expr> for CleanExpr {
-    fn from(from: Expr) -> Self {
+impl From<Op> for CleanOp {
+    fn from(from: Op) -> Self {
         match from {
-            Expr::Open(a, b, c) => Self::Open(a.0, b.0, c.0),
-            Expr::Balance(a, b, c, d) => Self::Balance(a.0, b.0, c.0, d.0),
-            Expr::Transaction(a, b, c) => {
+            Op::Open(a, b, c) => Self::Open(a.0, b.0, c.0),
+            Op::Balance(a, b, m) => Self::Balance(a.0, b.0, m.0),
+            Op::Transaction(a, b, c) => {
                 Self::Transaction(a.0, b.0, c.0.into_iter().map(|(x, _)| x).collect())
             }
         }
     }
 }
 
-impl From<Spanned<Expr>> for CleanExpr {
-    fn from((from, _): Spanned<Expr>) -> Self {
+impl From<Spanned<Op>> for CleanOp {
+    fn from((from, _): Spanned<Op>) -> Self {
         from.into()
     }
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Expr {
+pub enum Op {
     Open(Spanned<NaiveDate>, Spanned<Account>, Spanned<Currency>),
     Balance(
         Spanned<NaiveDate>,
         Spanned<Account>,
-        Spanned<i64>,
-        Spanned<Currency>,
+        Spanned<Money>
     ),
     Transaction(
         Spanned<NaiveDate>,
@@ -46,7 +45,7 @@ pub enum Expr {
     ),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Keyword {
     Open,
     Balance,
@@ -54,31 +53,37 @@ pub enum Keyword {
     Unknown(String),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Token {
-    Comment(String),
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Expr {
     Date(NaiveDate),
-    Amount(u64),
-    NegativeAmount(i64),
-    Description(String),
-    Currency(Currency),
-    Keyword(Keyword),
-    Account(AccountType, Vec<String>),
-    Movement(MovementKind),
+    Account(Account),
+    Currency(String),
+    Amount(u64, Sign, String),
+    Keyword(Keyword)
 }
 
-impl Token {
-    pub fn amount(&self) -> Option<u64> {
-        match self {
-            Self::Amount(a) => Some(*a),
-            _ => None,
-        }
-    }
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Token {
+    Comment(String),
+    Identifier(String),
+    Movement(MovementKind),
+    String(String),
+    Currency(String),
+    Number(u64, Sign),
+    Separator(char),
+}
 
-    pub fn currency(&self) -> Option<Currency> {
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum Sign {
+    Positive,
+    Negative,
+}
+
+impl Sign {
+    pub fn flip(&self) -> Self {
         match self {
-            Self::Currency(c) => Some(c.clone()),
-            _ => None,
+            Sign::Positive => Sign::Negative,
+            Sign::Negative => Sign::Positive,
         }
     }
 }

@@ -3,7 +3,7 @@ use std::ops::{BitAnd, Not};
 use chrono::{NaiveDate, NaiveDateTime};
 use polars::prelude::*;
 
-use crate::{validate::ALL_VALIDATORS, BalanceVerification};
+use crate::{money::Money, validate::ALL_VALIDATORS, BalanceVerification};
 
 pub struct Transaction {
     pub id: u64,
@@ -184,7 +184,7 @@ impl Ledger {
 
             let df = self.all()?;
 
-            let acc: &str = &verification.account;
+            let acc: &str = &verification.account.to_string();
             let filter_mask = df.column("ledger.account_name")?.equal(acc);
 
             let date_mask = df
@@ -194,14 +194,17 @@ impl Ledger {
 
             let filtered = df.filter(&filter_mask.bitand(date_mask))?;
 
-            let sum = filtered
-                .column("ledger.signed_amount")?
-                .i64()?
-                .sum()
-                .unwrap_or(0);
+            let sum = Money::from_int(
+                filtered
+                    .column("ledger.signed_amount")?
+                    .i64()?
+                    .sum()
+                    .unwrap_or(0),
+                verification.clone().amount.currency,
+            );
 
             // TODO: Make proper rounding for the numbers to avoid those kinds of hacks
-            if sum != verification.amount && sum + 1 != verification.amount {
+            if sum != verification.amount {
                 println!(" ERROR");
                 panic!(
                     "Balances do not match, expected {}, got {}",
