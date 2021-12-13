@@ -7,6 +7,7 @@ edition = "2021"
 anyhow = "1.0.51"
 chrono = "0.4.19"
 chumsky = "0.6.0"
+num = "0.4.0"
 polars = { version = "0.18.0", features = ["temporal", "dtype-date", "rows"] }
 structopt = "0.3.25"
 thiserror = "1.0.30"

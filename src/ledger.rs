@@ -1,6 +1,7 @@
 use std::ops::{BitAnd, Not};
 
 use chrono::{NaiveDate, NaiveDateTime};
+use num::{ ToPrimitive, BigRational };
 use polars::prelude::*;
 
 use crate::{money::Money, validate::ALL_VALIDATORS, BalanceVerification};
@@ -11,9 +12,9 @@ pub struct Transaction {
     pub description: String,
     pub account_name: String,
     pub account_parts: Vec<String>,
-    pub amount: u64,
+    pub amount: BigRational,
     pub currency: String,
-    pub signed_amount: i64,
+    pub signed_amount: BigRational,
     pub is_credit: bool,
 }
 
@@ -98,7 +99,7 @@ impl From<Vec<Transaction>> for Ledger {
             .into_series(),
             amount: UInt64Chunked::new_from_slice(
                 "ledger.amount",
-                &iter.clone().map(|x| x.amount).collect::<Vec<_>>(),
+                &iter.clone().map(|x| x.amount.to_u64().unwrap()).collect::<Vec<_>>(),
             )
             .into_series(),
             currency: Utf8Chunked::new_from_slice(
@@ -108,7 +109,7 @@ impl From<Vec<Transaction>> for Ledger {
             .into_series(),
             signed_amount: Int64Chunked::new_from_slice(
                 "ledger.signed_amount",
-                &iter.clone().map(|x| x.signed_amount).collect::<Vec<_>>(),
+                &iter.clone().map(|x| x.signed_amount.to_i64().unwrap()).collect::<Vec<_>>(),
             )
             .into_series(),
             is_credit: BooleanChunked::new_from_slice(
@@ -194,17 +195,15 @@ impl Ledger {
 
             let filtered = df.filter(&filter_mask.bitand(date_mask))?;
 
-            let sum = Money::from_int(
-                filtered
-                    .column("ledger.signed_amount")?
-                    .i64()?
-                    .sum()
-                    .unwrap_or(0),
-                verification.clone().amount.currency,
-            );
+            let sum = filtered
+                .column("ledger.signed_amount")?
+                .f64()?
+                .sum()
+                .unwrap_or(0.0);
+            let sum_money = Money::new(BigRational::from_float(sum).unwrap(), verification.clone().amount.currency);
 
             // TODO: Make proper rounding for the numbers to avoid those kinds of hacks
-            if sum != verification.amount {
+            if sum_money != verification.amount {
                 println!(" ERROR");
                 panic!(
                     "Balances do not match, expected {}, got {}",
