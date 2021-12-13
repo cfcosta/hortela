@@ -42,7 +42,7 @@ pub enum Op {
     ),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Copy)]
 pub enum Keyword {
     Open,
     Balance,
@@ -67,6 +67,44 @@ pub enum Expr {
     Currency(String),
     Amount(BigRational, String),
     Keyword(Keyword),
+    Description(String)
+}
+
+impl Expr {
+    pub fn get_date(&self) -> Option<NaiveDate> {
+        match self {
+            Expr::Date(d) => Some(*d),
+            _ => None
+        }
+    }
+
+    pub fn get_account(&self) -> Option<Account> {
+        match self {
+            Expr::Account(a) => Some(a.clone()),
+            _ => None
+        }
+    }
+
+    pub fn get_currency(&self) -> Option<String> {
+        match self {
+            Expr::Currency(c) => Some(c.clone()),
+            _ => None
+        }
+    }
+
+    pub fn get_money(&self) -> Option<Money> {
+        match self {
+            Expr::Amount(a, c) => Some(Money::new(a.clone(), c.clone())),
+            _ => None
+        }
+    }
+
+    pub fn get_description(&self) -> Option<String> {
+        match self {
+            Expr::Description(d) => Some(d.clone()),
+            _ => None
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -92,6 +130,76 @@ impl Token {
     pub fn currency<T: Into<String>>(id: T) -> Self {
         Self::Currency(id.into())
     }
+
+    pub fn is_comment(&self) -> bool {
+        match self {
+            Token::Comment(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_identifier(&self) -> bool {
+        match self {
+            Token::Identifier(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_movement(&self) -> bool {
+        match self {
+            Token::Movement(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_string(&self) -> bool {
+        match self {
+            Token::String(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_currency(&self) -> bool {
+        match self {
+            Token::Currency(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_number(&self) -> bool {
+        match self {
+            Token::Number(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn is_separator(&self) -> bool {
+        match self {
+            Token::Separator(_) => true,
+            _ => false
+        }
+    }
+
+    pub fn get_number(&self) -> Option<BigRational> {
+        match self {
+            Token::Number(n) => Some(n.clone()),
+            _ => None
+        }
+    }
+
+    pub fn get_string(&self) -> Option<String> {
+        match self {
+            Token::String(s) => Some(s.clone()),
+            _ => None
+        }
+    }
+
+    pub fn get_movement_kind(&self) -> Option<MovementKind> {
+        match self {
+            Token::Movement(m) => Some(m.clone()),
+            _ => None
+        }
+    }
 }
 
 impl std::fmt::Display for Token {
@@ -112,55 +220,6 @@ impl std::fmt::Display for Token {
             Token::Currency(cur) => write!(f, "{}", cur),
             Token::Number(n) => write!(f, "{}", n),
             Token::Separator(c) => write!(f, "{}", c),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum Sign {
-    Positive,
-    Negative,
-}
-
-impl From<f64> for Sign {
-    fn from(num: f64) -> Self {
-        if num < 0.0 {
-            Sign::Negative
-        } else {
-            Sign::Positive
-        }
-    }
-}
-
-impl From<i64> for Sign {
-    fn from(num: i64) -> Self {
-        if num < 0 {
-            Sign::Negative
-        } else {
-            Sign::Positive
-        }
-    }
-}
-
-impl Sign {
-    pub fn flip(&self) -> Self {
-        match self {
-            Sign::Positive => Sign::Negative,
-            Sign::Negative => Sign::Positive,
-        }
-    }
-
-    pub fn to_f64(&self) -> f64 {
-        match self {
-            Sign::Negative => -1.0,
-            Sign::Positive => 1.0,
-        }
-    }
-
-    pub fn to_i64(&self) -> i64 {
-        match self {
-            Sign::Negative => -1,
-            Sign::Positive => 1,
         }
     }
 }
