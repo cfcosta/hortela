@@ -3,6 +3,7 @@ use std::{fs, path::Path};
 use anyhow::Result;
 use chrono::prelude::*;
 use chumsky::prelude::*;
+use num::{bigint::ToBigInt, BigRational, ToPrimitive};
 
 use crate::{
     account::*,
@@ -26,8 +27,13 @@ fn sep(del: char) -> impl Parser<Spanned<Token>, Spanned<Token>, Error = Simple<
 
 fn date() -> impl Parser<Spanned<Token>, Spanned<Expr>, Error = Simple<Spanned<Token>>> {
     let bounded = |start: u64, end: u64| {
+        let (start, end) = (
+            BigRational::from_integer(start.to_bigint().unwrap()),
+            BigRational::from_integer(end.to_bigint().unwrap()),
+        );
+
         filter_map(move |span: Span, token| match token {
-            (Token::Number(d, Sign::Positive), inner) if d > start && d < end => Ok((d, inner)),
+            (Token::Number(n), inner) if n > start && n < end => Ok((n, inner)),
             _ => Err(Simple::expected_input_found(span, vec![], Some(token))),
         })
     };
@@ -38,7 +44,11 @@ fn date() -> impl Parser<Spanned<Token>, Spanned<Expr>, Error = Simple<Spanned<T
         .then_ignore(sep('-'))
         .then(day)
         .try_map(|(((y, _), (m, _)), (d, _)), span| {
-            match NaiveDate::from_ymd_opt(y as i32, m as u32, d as u32) {
+            match NaiveDate::from_ymd_opt(
+                y.to_i32().unwrap() as i32,
+                m.to_u32().unwrap() as u32,
+                d.to_u32().unwrap() as u32,
+            ) {
                 Some(d) => Ok(Expr::Date(d)),
                 None => Err(Simple::expected_input_found(span, vec![], None)),
             }
@@ -52,7 +62,9 @@ fn keyword<T: Into<String>>(
     let val = keyword.into();
 
     filter_map(move |span: Span, token: Spanned<Token>| match token {
-        (Token::Identifier(id), inner) if &id == &val => Ok((Expr::Keyword(Keyword::Open), inner)),
+        (Token::Identifier(id), inner) if Keyword::from_str(&id).is_some() => {
+            Ok((Expr::Keyword(Keyword::from_str(&id).unwrap()), inner))
+        }
         (t, inner) => Err(Simple::expected_input_found(
             span,
             vec![(Token::Identifier(val.clone()), inner.clone())],
@@ -105,13 +117,16 @@ fn account() -> impl Parser<Spanned<Token>, Spanned<Expr>, Error = Simple<Spanne
                     .into_iter()
                     .filter_map(|(token, _)| match token {
                         Token::Identifier(id) => Some(id),
-                        _ => None
+                        _ => None,
                     })
                     .collect();
                 let span = sk.start()..end;
 
                 if parts.len() > 3 {
-                    Err(Simple::custom(span, "Accounts can contain only 4 segments"))
+                    Err(Simple::custom(
+                        span,
+                        "Accounts can contain at most 4 segments",
+                    ))
                 } else {
                     Ok((Expr::Account(Account(kind, parts)), span))
                 }
@@ -121,17 +136,17 @@ fn account() -> impl Parser<Spanned<Token>, Spanned<Expr>, Error = Simple<Spanne
 
 fn amount() -> impl Parser<Spanned<Token>, Spanned<Expr>, Error = Simple<Spanned<Token>>> {
     let number = filter_map(move |span: Span, token: Spanned<Token>| match token {
-        (Token::Number(n, sign), inner) => Ok(((n, sign), inner)),
+        (Token::Number(n), inner) => Ok((n, inner)),
         (t, inner) => Err(Simple::expected_input_found(span, vec![], Some((t, inner)))),
     });
 
     number
         .then(currency())
-        .try_map(|(((n, sign), sn), (cur, sc)), _: Span| {
+        .try_map(|((n, sn), (cur, sc)), _: Span| {
             let span = sn.start()..sc.end();
 
             match cur {
-                Expr::Currency(cur) => Ok((Expr::Amount(n, sign, cur), span)),
+                Expr::Currency(cur) => Ok((Expr::Amount(n, cur), span)),
                 _ => Err(Simple::expected_input_found(span, vec![], None)),
             }
         })
@@ -144,31 +159,35 @@ fn currency() -> impl Parser<Spanned<Token>, Spanned<Expr>, Error = Simple<Spann
     })
 }
 
-fn unwrapped_date() -> impl Parser<Spanned<Token>, Spanned<NaiveDate>, Error = Simple<Spanned<Token>>> {
-    date().try_map(|(expr, inner), span| match expr {
+fn unwrapped_date(
+) -> impl Parser<Spanned<Token>, Spanned<NaiveDate>, Error = Simple<Spanned<Token>>> {
+    date().try_map(|(expr, inner), _| match expr {
         Expr::Date(d) => Ok((d, inner)),
-        _ => Err(Simple::expected_input_found(span, vec![], None)),
+        _ => Err(Simple::expected_input_found(inner, vec![], None)),
     })
 }
 
-fn unwrapped_account() -> impl Parser<Spanned<Token>, Spanned<Account>, Error = Simple<Spanned<Token>>> {
+fn unwrapped_account(
+) -> impl Parser<Spanned<Token>, Spanned<Account>, Error = Simple<Spanned<Token>>> {
     account().try_map(|(expr, inner), _| match expr {
         Expr::Account(acc) => Ok((acc, inner)),
         _ => Err(Simple::expected_input_found(inner, vec![], None)),
     })
 }
 
-fn unwrapped_currency() -> impl Parser<Spanned<Token>, Spanned<Currency>, Error = Simple<Spanned<Token>>> {
-    currency().try_map(|(expr, inner), span| match expr {
+fn unwrapped_currency(
+) -> impl Parser<Spanned<Token>, Spanned<Currency>, Error = Simple<Spanned<Token>>> {
+    currency().try_map(|(expr, inner), _| match expr {
         Expr::Currency(cur) => Ok((Currency(cur), inner)),
-        _ => Err(Simple::expected_input_found(span, vec![], None)),
+        _ => Err(Simple::expected_input_found(inner, vec![], None)),
     })
 }
 
-fn unwrapped_amount() -> impl Parser<Spanned<Token>, Spanned<(u64, Sign, String)>, Error = Simple<Spanned<Token>>> {
-    amount().try_map(|(expr, inner), span| match expr {
-        Expr::Amount(a, b, c) => Ok(((a, b, c), inner)),
-        _ => Err(Simple::expected_input_found(span, vec![], None)),
+fn unwrapped_amount(
+) -> impl Parser<Spanned<Token>, Spanned<(BigRational, String)>, Error = Simple<Spanned<Token>>> {
+    amount().try_map(|(expr, inner), _| match expr {
+        Expr::Amount(num, cur) => Ok(((num, cur), inner)),
+        _ => Err(Simple::expected_input_found(inner, vec![], None)),
     })
 }
 
@@ -178,16 +197,19 @@ pub fn parser() -> impl Parser<Spanned<Token>, Vec<Spanned<Op>>, Error = Simple<
         .then(unwrapped_account())
         .then(unwrapped_currency())
         .map(|(((date, sd), acc), (cur, cd))| {
-            (Op::Open((date, sd.clone()), acc, (cur, cd.clone())), sd.start()..cd.end())
+            (
+                Op::Open((date, sd.clone()), acc, (cur, cd.clone())),
+                sd.start()..cd.end(),
+            )
         });
 
     let balance = unwrapped_date()
         .then_ignore(keyword("balance"))
         .then(unwrapped_account())
         .then(unwrapped_amount())
-        .map(|(((date, sd), acc), ((n, s, cur), cd))| {
+        .map(|(((date, sd), acc), ((n, cur), cd))| {
             (
-                Op::Balance((date, sd.clone()), acc, (Money::new(n, s, cur), cd.clone())),
+                Op::Balance((date, sd.clone()), acc, (Money::new(n, cur), cd.clone())),
                 sd.start()..cd.end(),
             )
         });
@@ -224,13 +246,34 @@ pub fn parse_file<'a, P: AsRef<Path>>(path: P) -> Result<Vec<Spanned<Op>>> {
 mod tests {
     use super::*;
     use anyhow::Result;
-    use chrono::prelude::*;
 
     fn clean_up(input: Vec<Spanned<Op>>) -> Vec<CleanOp> {
         input
             .into_iter()
             .map(|x| x.into())
             .collect::<Vec<CleanOp>>()
+    }
+
+    #[test]
+    fn test_parse_account() -> Result<()> {
+        let parser = account();
+        let tokens = vec![
+            (Token::identifier("assets"), 0..1),
+            (Token::Separator(':'), 0..1),
+            (Token::identifier("cash_account"), 0..1),
+            (Token::Separator(':'), 0..1),
+            (Token::identifier("omg"), 0..1),
+        ];
+
+        assert_eq!(
+            parser.parse(tokens.as_slice()).map(|x| x.0),
+            Ok(Expr::Account(Account(
+                AccountType::Assets,
+                vec!["cash_account".into(), "omg".into()]
+            ))),
+        );
+
+        Ok(())
     }
 
     #[test]
@@ -242,67 +285,6 @@ mod tests {
                 Account(AccountType::Assets, vec!["cash_account".into()]),
                 "BRL".into()
             ),]
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_parse_multiple_open() -> Result<()> {
-        let transactions = Vec::from([
-            CleanOp::Open(
-                NaiveDate::from_ymd(2020, 1, 1),
-                Account(AccountType::Assets, vec!["cash_account".into()]),
-                "BRL".into(),
-            ),
-            CleanOp::Open(
-                NaiveDate::from_ymd(2020, 1, 2),
-                Account(AccountType::Liabilities, vec!["credit_card".into()]),
-                "BRL".into(),
-            ),
-        ]);
-
-        assert_eq!(
-            clean_up(parse_string("2020-01-01 open assets:cash_account BRL\n 2020-01-02 open liabilities:credit_card BRL")?),
-            transactions
-        );
-
-        Ok(())
-    }
-
-    #[test]
-    fn test_parse_transaction() -> Result<()> {
-        use AccountType::*;
-        use MovementKind::*;
-
-        let movements = vec![
-            Movement(
-                Debit,
-                Money::from_float(400.0, "BRL"),
-                Account(Assets, vec!["omg_asset".into()]),
-            ),
-            Movement(
-                Credit,
-                Money::from_float(400.0, "BRL"),
-                Account(Equity, vec!["omg_equity".into()]),
-            ),
-        ];
-
-        let transaction = Vec::from([CleanOp::Transaction(
-            NaiveDate::from_ymd(2020, 1, 1),
-            "Hello World".into(),
-            movements,
-        )]);
-
-        assert_eq!(
-            clean_up(parse_string(
-                "
-                     2020-01-01 transaction \"Hello World\"
-                     < 400 BRL assets:omg_asset
-                     > 400 BRL equity:omg_equity
-                "
-            )?),
-            transaction
         );
 
         Ok(())

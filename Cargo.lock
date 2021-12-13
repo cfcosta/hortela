@@ -382,6 +382,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "chumsky",
+ "num",
  "polars",
  "structopt",
  "thiserror",
