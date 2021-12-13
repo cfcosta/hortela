@@ -301,7 +301,7 @@ pub fn parser() -> impl Parser<Spanned<Token>, Vec<Spanned<Op>>, Error = Simple<
         .or(transaction_op())
         .recover_with(skip_then_retry_until([]));
 
-    ops.repeated().collect()
+    ops.repeated().collect().then_ignore(end())
 }
 
 pub fn parse_string(input: &str) -> Result<Vec<Spanned<Op>>> {
@@ -309,7 +309,6 @@ pub fn parse_string(input: &str) -> Result<Vec<Spanned<Op>>> {
     let parser = parser();
 
     let (tokens, errs) = lexer.parse_recovery(input);
-    dbg!(&tokens, &errs);
 
     match tokens {
         Some((l, _)) => {
