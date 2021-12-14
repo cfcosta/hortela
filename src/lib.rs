@@ -13,7 +13,7 @@ pub mod validate;
 
 use ledger::{Ledger, Transaction};
 use money::Money;
-use syntax::{CleanOp, Op, Span, Spanned};
+use syntax::{Op, Span, Spanned};
 
 #[derive(Debug, Clone)]
 pub struct BalanceVerification {
@@ -45,18 +45,24 @@ pub fn compute_program(program: Vec<Spanned<Op>>) -> Result<(Ledger, LedgerConte
     let mut id: u64 = 1;
 
     for (expr, span) in program.into_iter() {
-        match expr.into() {
-            CleanOp::Open(_date, _acc, _balance) => {}
-            CleanOp::Balance(date, account, amount) => {
+        match expr {
+            Op::Open(_date, _acc, _balance) => {}
+            Op::Balance((date, _), (account, _), (amount, _)) => {
                 context
                     .balance_verifications
                     .push(BalanceVerification::new(account, date, amount, span));
             }
-            CleanOp::Transaction(date, desc, movements) => {
-                for movement in movements.into_iter() {
-                    let transaction = movement.to_transaction(id, date, desc.clone());
+            Op::Transaction((date, _), (desc, _), (movements, _)) => {
+                let mut parent = None;
+
+                for (movement, span) in movements.into_iter() {
+                    let transaction = movement.to_transaction(id, date, desc.clone(), span, parent);
 
                     result.push(transaction);
+
+                    if parent.is_none() {
+                        parent = Some(id);
+                    }
 
                     id += 1;
                 }

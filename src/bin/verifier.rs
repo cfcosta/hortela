@@ -17,7 +17,6 @@ fn main() -> Result<()> {
     let parsed = parser::parse_file(options.file)?;
 
     let (ledger, context) = compute_program(parsed)?;
-    ledger.all()?;
     println!("Validating transactions internal state...");
     ledger.validate()?;
     println!("Validating balance statements...");

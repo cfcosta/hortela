@@ -1,20 +1,42 @@
 use chrono::NaiveDate;
-use num::{BigRational, BigInt, FromPrimitive};
+use num::{BigRational, ToPrimitive};
 
-use crate::{account::Account, ledger::Transaction};
+use crate::{account::Account, ledger::Transaction, syntax::Span};
 
 #[derive(Debug, PartialEq, Eq, Clone, Hash)]
 pub struct Money {
     pub amount: BigRational,
-    pub currency: Currency
+    pub currency: Currency,
 }
 
 impl Money {
     pub fn new<C: Into<Currency>>(amount: BigRational, currency: C) -> Self {
         Self {
             amount,
-            currency: currency.into()
+            currency: currency.into(),
         }
+    }
+
+    pub fn numer(&self) -> Option<u64> {
+        self.amount.numer().to_u64()
+    }
+
+    pub fn denom(&self) -> Option<u64> {
+        self.amount.denom().to_u64()
+    }
+
+    pub fn currency(&self) -> String {
+        self.currency.0.clone()
+    }
+
+    pub fn equals(&self, amount: f64, precision: i32) -> bool {
+        let factor = 10f64.powi(precision);
+        let expected = (amount * factor).round() as u64;
+
+        self.amount
+            .to_f64()
+            .map(|f| (f * factor).round() as u64 == expected)
+            .unwrap_or(false)
     }
 }
 
@@ -46,7 +68,7 @@ impl From<&str> for Currency {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Eq, Hash)]
+#[derive(Debug, PartialEq, Clone, Eq, Hash, Copy)]
 pub enum MovementKind {
     Credit,
     Debit,
@@ -76,21 +98,24 @@ impl Movement {
         self.0 == MovementKind::Credit
     }
 
-    pub fn to_transaction(self, id: u64, date: NaiveDate, description: String) -> Transaction {
-        let Money { amount, currency } = self.1.clone();
-        let parts = self.2.parts();
-        let factor = BigInt::from_i64(self.2.signed_factor(self.0.clone())).unwrap();
-
+    pub fn to_transaction(
+        self,
+        id: u64,
+        date: NaiveDate,
+        description: String,
+        span: Span,
+        parent_id: Option<u64>,
+    ) -> Transaction {
         Transaction {
             id,
             date,
             description,
-            account_parts: parts.clone(),
-            account_name: parts.join(":"),
-            amount: amount.clone(),
-            currency: currency.into(),
-            signed_amount: amount * factor,
-            is_credit: self.is_credit(),
+            kind: self.0,
+            account: self.2,
+            amount: self.1,
+            span,
+            from_amount: None,
+            parent_id,
         }
     }
 }

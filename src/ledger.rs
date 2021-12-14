@@ -1,21 +1,34 @@
 use std::ops::{BitAnd, Not};
 
 use chrono::{NaiveDate, NaiveDateTime};
-use num::{ ToPrimitive, BigRational };
+use num::{BigRational, ToPrimitive};
 use polars::prelude::*;
 
-use crate::{money::Money, validate::ALL_VALIDATORS, BalanceVerification};
+use crate::{
+    account::Account,
+    money::{Money, MovementKind},
+    syntax::Span,
+    validate::ALL_VALIDATORS,
+    BalanceVerification,
+};
 
+#[derive(Clone, Debug)]
 pub struct Transaction {
     pub id: u64,
     pub date: NaiveDate,
     pub description: String,
-    pub account_name: String,
-    pub account_parts: Vec<String>,
-    pub amount: BigRational,
-    pub currency: String,
-    pub signed_amount: BigRational,
-    pub is_credit: bool,
+    pub kind: MovementKind,
+    pub account: Account,
+    pub amount: Money,
+    pub span: Span,
+    pub from_amount: Option<Money>,
+    pub parent_id: Option<u64>,
+}
+
+impl Transaction {
+    pub fn is_credit(&self) -> bool {
+        self.kind == MovementKind::Credit
+    }
 }
 
 #[derive(Clone)]
@@ -28,10 +41,17 @@ pub struct Ledger {
     pub account_name_1: Series,
     pub account_name_2: Series,
     pub account_name_3: Series,
-    pub amount: Series,
+    pub amount_numerator: Series,
+    pub amount_denominator: Series,
     pub currency: Series,
+    pub amount_from_numerator: Series,
+    pub amount_from_denominator: Series,
+    pub currency_from: Series,
     pub signed_amount: Series,
     pub is_credit: Series,
+    pub parent_id: Series,
+    pub span_start: Series,
+    pub span_end: Series,
 }
 
 impl From<Vec<Transaction>> for Ledger {
@@ -39,84 +59,105 @@ impl From<Vec<Transaction>> for Ledger {
         let iter = list.iter();
 
         Self {
-            id: UInt64Chunked::new_from_slice(
-                "ledger.id",
-                &iter.clone().map(|x| x.id).collect::<Vec<_>>(),
-            )
-            .into_series(),
+            id: Series::new("ledger.id", iter.clone().map(|x| x.id).collect::<Vec<_>>()),
             date: DateChunked::new_from_naive_date(
                 "ledger.date",
                 &iter.clone().map(|x| x.date).collect::<Vec<_>>(),
             )
             .into_series(),
-            description: Utf8Chunked::new_from_slice(
+            description: Series::new(
                 "ledger.description",
-                &iter
-                    .clone()
+                iter.clone()
                     .map(|x| x.description.clone())
                     .collect::<Vec<_>>(),
-            )
-            .into_series(),
-            account_name: Utf8Chunked::new_from_slice(
+            ),
+            account_name: Series::new(
                 "ledger.account_name",
-                &iter
-                    .clone()
-                    .map(|x| x.account_parts.join(":"))
+                iter.clone()
+                    .map(|x| x.account.to_string())
                     .collect::<Vec<_>>(),
-            )
-            .into_series(),
-            account_name_0: Utf8Chunked::new_from_slice(
+            ),
+            account_name_0: Series::new(
                 "ledger.account_name_0",
-                &iter
-                    .clone()
-                    .map(|x| x.account_parts.get(0).cloned().unwrap_or("".into()))
+                iter.clone()
+                    .map(|x| x.account.parts().get(0).cloned())
                     .collect::<Vec<_>>(),
-            )
-            .into_series(),
-            account_name_1: Utf8Chunked::new_from_slice(
+            ),
+            account_name_1: Series::new(
                 "ledger.account_name_1",
-                &iter
-                    .clone()
-                    .map(|x| x.account_parts.get(1).cloned().unwrap_or("".into()))
+                iter.clone()
+                    .map(|x| x.account.parts().get(1).cloned())
                     .collect::<Vec<_>>(),
-            )
-            .into_series(),
-            account_name_2: Utf8Chunked::new_from_slice(
+            ),
+            account_name_2: Series::new(
                 "ledger.account_name_2",
-                &iter
-                    .clone()
-                    .map(|x| x.account_parts.get(2).cloned().unwrap_or("".into()))
+                iter.clone()
+                    .map(|x| x.account.parts().get(2).cloned())
                     .collect::<Vec<_>>(),
-            )
-            .into_series(),
-            account_name_3: Utf8Chunked::new_from_slice(
+            ),
+            account_name_3: Series::new(
                 "ledger.account_name_3",
-                &iter
-                    .clone()
-                    .map(|x| x.account_parts.get(3).cloned().unwrap_or("".into()))
+                iter.clone()
+                    .map(|x| x.account.parts().get(3).cloned())
                     .collect::<Vec<_>>(),
-            )
-            .into_series(),
-            amount: UInt64Chunked::new_from_slice(
-                "ledger.amount",
-                &iter.clone().map(|x| x.amount.to_u64().unwrap()).collect::<Vec<_>>(),
-            )
-            .into_series(),
-            currency: Utf8Chunked::new_from_slice(
+            ),
+            amount_numerator: Series::new(
+                "ledger.amount_numerator",
+                iter.clone().map(|x| x.amount.numer()).collect::<Vec<_>>(),
+            ),
+            amount_denominator: Series::new(
+                "ledger.amount_denominator",
+                iter.clone().map(|x| x.amount.denom()).collect::<Vec<_>>(),
+            ),
+            currency: Series::new(
                 "ledger.currency",
-                &iter.clone().map(|x| x.currency.clone()).collect::<Vec<_>>(),
-            )
-            .into_series(),
-            signed_amount: Int64Chunked::new_from_slice(
-                "ledger.signed_amount",
-                &iter.clone().map(|x| x.signed_amount.to_i64().unwrap()).collect::<Vec<_>>(),
-            )
-            .into_series(),
-            is_credit: BooleanChunked::new_from_slice(
+                iter.clone()
+                    .map(|x| x.amount.currency())
+                    .collect::<Vec<_>>(),
+            ),
+            amount_from_numerator: Series::new(
+                "ledger.amount_from_numerator",
+                iter.clone().map(|x| x.amount.numer()).collect::<Vec<_>>(),
+            ),
+            amount_from_denominator: Series::new(
+                "ledger.amount_from_denominator",
+                iter.clone().map(|x| x.amount.denom()).collect::<Vec<_>>(),
+            ),
+            currency_from: Series::new(
+                "ledger.currency_from",
+                iter.clone()
+                    .map(|x| x.amount.currency())
+                    .collect::<Vec<_>>(),
+            ),
+            is_credit: Series::new(
                 "ledger.is_credit",
-                &iter.clone().map(|x| x.is_credit).collect::<Vec<_>>(),
-            )
-            .into_series(),
+                iter.clone().map(|x| x.is_credit()).collect::<Vec<_>>(),
+            ),
+            parent_id: Series::new(
+                "ledger.parent_id",
+                iter.clone().map(|x| x.parent_id).collect::<Vec<_>>(),
+            ),
+            span_start: Series::new(
+                "ledger.span_start",
+                iter.clone()
+                    .map(|x| x.span.start as u64)
+                    .collect::<Vec<_>>(),
+            ),
+            span_end: Series::new(
+                "ledger.span_end",
+                iter.clone().map(|x| x.span.end as u64).collect::<Vec<_>>(),
+            ),
+            signed_amount: Series::new(
+                "ledger.signed_amount",
+                iter.clone()
+                    .map(|x| {
+                        x.amount
+                            .amount
+                            .to_f64()
+                            .map(|m| m * x.account.signed_factor(x.kind).to_f64().unwrap())
+                    })
+                    .collect::<Vec<_>>(),
+            ),
         }
     }
 }
@@ -144,18 +185,34 @@ impl Ledger {
     pub fn all(&self) -> Result<DataFrame> {
         let data = self.clone();
 
+        let mut amount = data
+            .amount_numerator
+            .cast(&DataType::Float64)?
+            .divide(&data.amount_denominator.cast(&DataType::Float64)?)?;
+
+        amount.rename("ledger.amount");
+
         DataFrame::new(vec![
             data.id,
             data.date,
+            data.description,
             data.account_name,
             data.account_name_0,
             data.account_name_1,
             data.account_name_2,
             data.account_name_3,
-            data.amount,
+            amount,
+            data.amount_numerator,
+            data.amount_denominator,
             data.currency,
+            data.amount_from_numerator,
+            data.amount_from_denominator,
+            data.currency_from,
             data.signed_amount,
             data.is_credit,
+            data.parent_id,
+            data.span_start,
+            data.span_end,
         ])
     }
 
@@ -197,13 +254,11 @@ impl Ledger {
 
             let sum = filtered
                 .column("ledger.signed_amount")?
-                .f64()?
                 .sum()
                 .unwrap_or(0.0);
-            let sum_money = Money::new(BigRational::from_float(sum).unwrap(), verification.clone().amount.currency);
 
             // TODO: Make proper rounding for the numbers to avoid those kinds of hacks
-            if sum_money != verification.amount {
+            if !verification.amount.equals(sum, 2) {
                 println!(" ERROR");
                 panic!(
                     "Balances do not match, expected {}, got {}",
