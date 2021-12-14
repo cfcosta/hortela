@@ -4,7 +4,7 @@ use anyhow::Result;
 use polars::prelude::*;
 use structopt::StructOpt;
 
-use hortela::{compute_program, parser};
+use hortela::{compute_program, syntax};
 
 #[derive(StructOpt)]
 pub struct Options {
@@ -63,7 +63,7 @@ fn sums_by_account(df: &DataFrame, amount_column_name: &str) -> Result<DataFrame
 
 fn main() -> Result<()> {
     let options = Options::from_args();
-    let (ledger, _) = compute_program(parser::parse_file(options.reporter.file())?)?;
+    let (ledger, _) = compute_program(syntax::parse_file(options.reporter.file())?)?;
 
     let credits = sums_by_account(&ledger.credits()?, "credits")?;
     let debits = sums_by_account(&ledger.debits()?, "debits")?;

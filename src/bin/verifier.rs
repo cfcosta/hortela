@@ -9,13 +9,13 @@ pub struct Options {
     file: PathBuf,
 }
 
-use hortela::{compute_program, parser, validate::ValidationRunner};
+use hortela::{compute_program, syntax, validate::ValidationRunner};
 
 fn main() -> Result<()> {
     let options = Options::from_args();
     let input = std::fs::read_to_string(&options.file)?;
 
-    let parsed = parser::parse_string(&options.file, &input)?;
+    let parsed = syntax::parse_string(&options.file, &input)?;
     let (ledger, context) = compute_program(parsed)?;
 
     println!("Validating transactions internal state...");
