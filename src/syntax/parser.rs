@@ -8,7 +8,6 @@ use num::{BigRational, ToPrimitive};
 
 use crate::{
     account::*,
-    lexer::lexer,
     money::{Movement, MovementKind},
     syntax::*,
 };

@@ -5,7 +5,7 @@ use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
 use polars::prelude::*;
 use thiserror::Error;
 
-use crate::{ledger::Ledger, syntax::Span, utils::repeater};
+use crate::{ledger::Ledger, syntax::Span};
 
 #[derive(Debug, Error)]
 pub enum ValidationError {
