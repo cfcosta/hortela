@@ -53,16 +53,12 @@ pub fn compute_program(program: Vec<Spanned<Op>>) -> Result<(Ledger, LedgerConte
                     .push(BalanceVerification::new(account, date, amount, span));
             }
             Op::Transaction((date, _), (desc, _), (movements, _)) => {
-                let mut parent = None;
+                let parent = Some(id);
 
                 for (movement, span) in movements.into_iter() {
                     let transaction = movement.to_transaction(id, date, desc.clone(), span, parent);
 
                     result.push(transaction);
-
-                    if parent.is_none() {
-                        parent = Some(id);
-                    }
 
                     id += 1;
                 }

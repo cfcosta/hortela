@@ -1,14 +1,13 @@
 use std::ops::{BitAnd, Not};
 
 use chrono::{NaiveDate, NaiveDateTime};
-use num::{BigRational, ToPrimitive};
+use num::ToPrimitive;
 use polars::prelude::*;
 
 use crate::{
     account::Account,
     money::{Money, MovementKind},
     syntax::Span,
-    validate::ALL_VALIDATORS,
     BalanceVerification,
 };
 
@@ -182,6 +181,12 @@ impl Ledger {
         Ok(df.filter(&df.column("ledger.is_credit")?.bool()?.not())?)
     }
 
+    pub fn transaction_type_mask(&self, df: &DataFrame) -> Result<(BooleanChunked, BooleanChunked)> {
+        let column = df.column("ledger.is_credit")?.bool()?;
+
+        Ok((column.clone(), column.not()))
+    }
+
     pub fn all(&self) -> Result<DataFrame> {
         let data = self.clone();
 
@@ -214,23 +219,6 @@ impl Ledger {
             data.span_start,
             data.span_end,
         ])
-    }
-
-    pub fn validate(&self) -> Result<()> {
-        for (name, validator) in ALL_VALIDATORS {
-            print!("Running validator: {}...", name);
-            match validator(&self.clone()) {
-                Ok(_) => {
-                    println!(" OK");
-                }
-                e => {
-                    println!(" ERROR");
-                    e?
-                }
-            }
-        }
-
-        Ok(())
     }
 
     pub fn validate_balances(&self, list: Vec<BalanceVerification>) -> Result<()> {
