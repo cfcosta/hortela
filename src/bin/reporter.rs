@@ -38,11 +38,24 @@ impl Reporter {
 }
 
 fn sums_by_account(df: &DataFrame, amount_column_name: &str) -> Result<DataFrame> {
-    let mut sums = df.clone().groupby("ledger.account_name")?.sum()?;
+    let mut sums = df
+        .clone()
+        .select(&[
+            "ledger.account_name",
+            "ledger.amount",
+            "ledger.signed_amount",
+        ])?
+        .groupby("ledger.account_name")?
+        .sum()?;
 
     sums.rename(
         "ledger.amount_sum",
         &format!("ledger.{}", amount_column_name),
+    )?;
+
+    sums.rename(
+        "ledger.signed_amount_sum",
+        &format!("ledger.signed_{}", amount_column_name),
     )?;
 
     Ok(sums)
@@ -52,17 +65,10 @@ fn main() -> Result<()> {
     let options = Options::from_args();
     let (ledger, _) = compute_program(parser::parse_file(options.reporter.file())?)?;
 
-    dbg!(sums_by_account(&ledger.credits()?, "credits")?.columns(&[
-        "ledger.account_name_0",
-        "ledger.account_name",
-        "ledger.credits"
-    ])?);
+    let credits = sums_by_account(&ledger.credits()?, "credits")?;
+    let debits = sums_by_account(&ledger.debits()?, "debits")?;
 
-    dbg!(sums_by_account(&ledger.debits()?, "debits")?.columns(&[
-        "ledger.account_name_0",
-        "ledger.account_name",
-        "ledger.debits"
-    ])?);
+    dbg!(credits.left_join(&debits, "ledger.account_name", "ledger.account_name")?);
 
     Ok(())
 }
