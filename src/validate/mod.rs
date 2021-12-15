@@ -7,75 +7,25 @@ use thiserror::Error;
 
 use crate::{ledger::Ledger, syntax::Span};
 
+mod runner;
+pub use runner::Runner;
+
 #[derive(Debug, Error)]
 pub enum ValidationError {
     #[error("Validation error")]
-    WithTrace(Vec<ValidationTrace>),
+    WithTrace(Vec<Trace>),
 
     #[error("Something happened with the Dataframe...")]
     DataframeError(#[from] polars::error::PolarsError),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ValidationTrace {
+pub struct Trace {
     message: String,
     details: String,
     span: Option<Span>,
     found: Option<String>,
     expected: Option<String>,
-}
-
-pub struct ValidationRunner;
-
-impl ValidationRunner {
-    pub fn run_all(filename: &Path, input: &str, ledger: &Ledger) -> Result<()> {
-        for (name, validator) in ALL_VALIDATORS {
-            print!("Running validator: {}...", name);
-
-            match validator(&ledger.clone()) {
-                Ok(_) => {
-                    println!(" OK");
-                }
-                Err(ValidationError::WithTrace(traces)) => {
-                    println!(" ERROR");
-
-                    traces.into_iter().for_each(|t| {
-                        let span = t.span.clone().unwrap_or(0..1);
-                        let report = Report::build(ReportKind::Error, (), span.start);
-
-                        let message_parts = vec![
-                            Some(t.message),
-                            t.expected
-                                .map(|x| format!("`{}`", x).fg(Color::Red).to_string()),
-                            t.found.map(|f| format!("found {}", f.fg(Color::Blue))),
-                        ];
-
-                        let message = message_parts
-                            .into_iter()
-                            .filter_map(|x| x)
-                            .collect::<Vec<String>>();
-
-                        let mut report = report.with_message(message.join(", "));
-
-                        if t.span.is_some() {
-                            report = report.with_label(
-                                Label::new(span)
-                                    .with_message(t.details)
-                                    .with_color(Color::Blue),
-                            );
-                        }
-
-                        report.finish().eprint(Source::from(&input)).unwrap();
-                    });
-
-                    bail!("Running validation `{}` failed.", name.fg(Color::Green));
-                }
-                Err(e) => bail!(e),
-            }
-        }
-
-        Ok(())
-    }
 }
 
 type Validator = fn(&Ledger) -> Result<(), ValidationError>;
@@ -108,7 +58,7 @@ fn validate_credits_and_debits_balance(ledger: &Ledger) -> Result<(), Validation
         return Ok(());
     }
 
-    Err(ValidationError::WithTrace(vec![ValidationTrace {
+    Err(ValidationError::WithTrace(vec![Trace {
         message: "Budget does not balance".to_string(),
         details:
             "In a double-entry accounting system, all credits and debits should balance in the end."
@@ -176,7 +126,7 @@ fn validate_all_isolated_transactions_balance(ledger: &Ledger) -> Result<(), Val
     for i in 0..result.shape().0 {
         let item = result.get(i).unwrap();
 
-        errors.push(ValidationTrace {
+        errors.push(Trace {
             message: "Transaction does not balance".into(),
             details: "Inside a transaction, all debits and credits must balance in the end."
                 .to_string(),

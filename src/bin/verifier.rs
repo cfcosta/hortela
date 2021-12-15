@@ -9,7 +9,7 @@ pub struct Options {
     file: PathBuf,
 }
 
-use hortela::{compute_program, syntax, validate::ValidationRunner};
+use hortela::{compute_program, syntax, validate};
 
 fn main() -> Result<()> {
     let options = Options::from_args();
@@ -19,7 +19,7 @@ fn main() -> Result<()> {
     let ledger = compute_program(parsed)?;
 
     println!("Validating transactions internal state...");
-    ValidationRunner::run_all(&options.file, &input, &ledger)?;
+    validate::Runner::run_all(&options.file, &input, &ledger)?;
     println!("Validating balance statements...");
     ledger.transactions.validate_balances(ledger.balance_verifications)?;
 
