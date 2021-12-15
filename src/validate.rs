@@ -92,12 +92,17 @@ pub static ALL_VALIDATORS: &[(&'static str, Validator)] = &[
 ];
 
 fn validate_credits_and_debits_balance(ledger: &Ledger) -> Result<(), ValidationError> {
-    let credit_sum: u64 = ledger
+    let transactions = &ledger.transactions;
+    let credit_sum: u64 = transactions
         .credits()?
-        .column("ledger.amount")?
+        .column("transaction.amount")?
         .sum()
         .unwrap_or(0);
-    let debit_sum: u64 = ledger.debits()?.column("ledger.amount")?.sum().unwrap_or(0);
+    let debit_sum: u64 = transactions
+        .debits()?
+        .column("transaction.amount")?
+        .sum()
+        .unwrap_or(0);
 
     if credit_sum == debit_sum {
         return Ok(());
@@ -115,10 +120,10 @@ fn validate_credits_and_debits_balance(ledger: &Ledger) -> Result<(), Validation
 }
 
 fn validate_all_isolated_transactions_balance(ledger: &Ledger) -> Result<(), ValidationError> {
-    let mut df = ledger.all()?;
+    let mut df = ledger.transactions.all()?;
 
     let credit_factor = df
-        .column("ledger.is_credit")?
+        .column("transaction.is_credit")?
         .bool()?
         .branch_apply_cast_numeric_no_null::<_, Float64Type>(|x| {
             if x == Some(true) {
@@ -130,28 +135,28 @@ fn validate_all_isolated_transactions_balance(ledger: &Ledger) -> Result<(), Val
         .into_series();
 
     df.replace(
-        "ledger.amount",
-        df.column("ledger.amount")?.multiply(&credit_factor)?,
+        "transaction.amount",
+        df.column("transaction.amount")?.multiply(&credit_factor)?,
     )?;
 
-    let grouped = df.groupby("ledger.parent_id")?;
+    let grouped = df.groupby("transaction.parent_id")?;
 
     let sums = grouped.clone().sum()?;
     let mins = grouped.clone().min()?;
     let maxes = grouped.clone().max()?;
 
-    let amount_sum = sums.column("ledger.amount_sum")?;
-    let span_start = mins.column("ledger.span_start_min")?;
-    let span_end = maxes.column("ledger.span_end_max")?;
+    let amount_sum = sums.column("transaction.amount_sum")?;
+    let span_start = mins.column("transaction.span_start_min")?;
+    let span_end = maxes.column("transaction.span_end_max")?;
 
     let df = DataFrame::new(vec![
-        sums.column("ledger.parent_id")?.clone(),
+        sums.column("transaction.parent_id")?.clone(),
         amount_sum.clone(),
         span_start.clone(),
         span_end.clone(),
     ])?;
 
-    let unbalanced = df.column("ledger.amount_sum")?.f64()?.not_equal(0.0);
+    let unbalanced = df.column("transaction.amount_sum")?.f64()?.not_equal(0.0);
 
     let result = df.filter(&unbalanced)?;
 

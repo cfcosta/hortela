@@ -6,9 +6,8 @@ use polars::prelude::*;
 
 use crate::{
     account::Account,
-    money::{Money, MovementKind},
+    money::{Currency, Money, MovementKind},
     syntax::Span,
-    BalanceVerification,
 };
 
 #[derive(Clone, Debug)]
@@ -30,8 +29,8 @@ impl Transaction {
     }
 }
 
-#[derive(Clone)]
-pub struct Ledger {
+#[derive(Clone, Default)]
+pub struct Transactions {
     pub id: Series,
     pub date: Series,
     pub description: Series,
@@ -53,136 +52,22 @@ pub struct Ledger {
     pub span_end: Series,
 }
 
-impl From<Vec<Transaction>> for Ledger {
-    fn from(list: Vec<Transaction>) -> Self {
-        let iter = list.iter();
-
-        Self {
-            id: Series::new("ledger.id", iter.clone().map(|x| x.id).collect::<Vec<_>>()),
-            date: DateChunked::new_from_naive_date(
-                "ledger.date",
-                &iter.clone().map(|x| x.date).collect::<Vec<_>>(),
-            )
-            .into_series(),
-            description: Series::new(
-                "ledger.description",
-                iter.clone()
-                    .map(|x| x.description.clone())
-                    .collect::<Vec<_>>(),
-            ),
-            account_name: Series::new(
-                "ledger.account_name",
-                iter.clone()
-                    .map(|x| x.account.to_string())
-                    .collect::<Vec<_>>(),
-            ),
-            account_name_0: Series::new(
-                "ledger.account_name_0",
-                iter.clone()
-                    .map(|x| x.account.parts().get(0).cloned())
-                    .collect::<Vec<_>>(),
-            ),
-            account_name_1: Series::new(
-                "ledger.account_name_1",
-                iter.clone()
-                    .map(|x| x.account.parts().get(1).cloned())
-                    .collect::<Vec<_>>(),
-            ),
-            account_name_2: Series::new(
-                "ledger.account_name_2",
-                iter.clone()
-                    .map(|x| x.account.parts().get(2).cloned())
-                    .collect::<Vec<_>>(),
-            ),
-            account_name_3: Series::new(
-                "ledger.account_name_3",
-                iter.clone()
-                    .map(|x| x.account.parts().get(3).cloned())
-                    .collect::<Vec<_>>(),
-            ),
-            amount_numerator: Series::new(
-                "ledger.amount_numerator",
-                iter.clone().map(|x| x.amount.numer()).collect::<Vec<_>>(),
-            ),
-            amount_denominator: Series::new(
-                "ledger.amount_denominator",
-                iter.clone().map(|x| x.amount.denom()).collect::<Vec<_>>(),
-            ),
-            currency: Series::new(
-                "ledger.currency",
-                iter.clone()
-                    .map(|x| x.amount.currency())
-                    .collect::<Vec<_>>(),
-            ),
-            amount_from_numerator: Series::new(
-                "ledger.amount_from_numerator",
-                iter.clone().map(|x| x.amount.numer()).collect::<Vec<_>>(),
-            ),
-            amount_from_denominator: Series::new(
-                "ledger.amount_from_denominator",
-                iter.clone().map(|x| x.amount.denom()).collect::<Vec<_>>(),
-            ),
-            currency_from: Series::new(
-                "ledger.currency_from",
-                iter.clone()
-                    .map(|x| x.amount.currency())
-                    .collect::<Vec<_>>(),
-            ),
-            is_credit: Series::new(
-                "ledger.is_credit",
-                iter.clone().map(|x| x.is_credit()).collect::<Vec<_>>(),
-            ),
-            parent_id: Series::new(
-                "ledger.parent_id",
-                iter.clone().map(|x| x.parent_id).collect::<Vec<_>>(),
-            ),
-            span_start: Series::new(
-                "ledger.span_start",
-                iter.clone()
-                    .map(|x| x.span.start as u64)
-                    .collect::<Vec<_>>(),
-            ),
-            span_end: Series::new(
-                "ledger.span_end",
-                iter.clone().map(|x| x.span.end as u64).collect::<Vec<_>>(),
-            ),
-            signed_amount: Series::new(
-                "ledger.signed_amount",
-                iter.clone()
-                    .map(|x| {
-                        x.amount
-                            .amount
-                            .to_f64()
-                            .map(|m| m * x.account.signed_factor(x.kind).to_f64().unwrap())
-                    })
-                    .collect::<Vec<_>>(),
-            ),
-        }
-    }
-}
-
-fn date_to_arrow_datatype(date: NaiveDate) -> i32 {
-    let unix_epoch = NaiveDate::from_ymd(1970, 1, 1).and_hms(0, 0, 0);
-    let time = date.and_hms(0, 0, 0);
-
-    let duration = time - NaiveDateTime::from(unix_epoch);
-
-    duration.num_days() as i32
-}
-
-impl Ledger {
+impl Transactions {
     pub fn credits(&self) -> Result<DataFrame> {
         let df = self.all()?;
-        Ok(df.filter(df.column("ledger.is_credit")?.bool()?)?)
+        Ok(df.filter(df.column("transaction.is_credit")?.bool()?)?)
     }
 
     pub fn debits(&self) -> Result<DataFrame> {
         let df = self.all()?;
-        Ok(df.filter(&df.column("ledger.is_credit")?.bool()?.not())?)
+        Ok(df.filter(&df.column("transaction.is_credit")?.bool()?.not())?)
     }
 
-    pub fn transaction_type_mask(&self, df: &DataFrame) -> Result<(BooleanChunked, BooleanChunked)> {
-        let column = df.column("ledger.is_credit")?.bool()?;
+    pub fn transaction_type_mask(
+        &self,
+        df: &DataFrame,
+    ) -> Result<(BooleanChunked, BooleanChunked)> {
+        let column = df.column("transaction.is_credit")?.bool()?;
 
         Ok((column.clone(), column.not()))
     }
@@ -195,7 +80,7 @@ impl Ledger {
             .cast(&DataType::Float64)?
             .divide(&data.amount_denominator.cast(&DataType::Float64)?)?;
 
-        amount.rename("ledger.amount");
+        amount.rename("transaction.amount");
 
         DataFrame::new(vec![
             data.id,
@@ -231,17 +116,17 @@ impl Ledger {
             let df = self.all()?;
 
             let acc: &str = &verification.account.to_string();
-            let filter_mask = df.column("ledger.account_name")?.equal(acc);
+            let filter_mask = df.column("transaction.account_name")?.equal(acc);
 
             let date_mask = df
-                .column("ledger.date")?
+                .column("transaction.date")?
                 .date()?
                 .lt_eq(date_to_arrow_datatype(verification.date));
 
             let filtered = df.filter(&filter_mask.bitand(date_mask))?;
 
             let sum = filtered
-                .column("ledger.signed_amount")?
+                .column("transaction.signed_amount")?
                 .sum()
                 .unwrap_or(0.0);
 
@@ -259,4 +144,269 @@ impl Ledger {
 
         Ok(())
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct BalanceVerification {
+    pub id: u64,
+    pub account: Account,
+    pub date: NaiveDate,
+    pub amount: Money,
+    pub span: Span,
+}
+
+impl BalanceVerification {
+    pub fn new(id: u64, account: Account, date: NaiveDate, amount: Money, span: Span) -> Self {
+        Self {
+            id,
+            account,
+            date,
+            amount,
+            span,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct BalanceVerifications {
+    pub id: Series,
+    pub date: Series,
+    pub account_name: Series,
+    pub amount_numerator: Series,
+    pub amount_denominator: Series,
+    pub currency: Series,
+    pub span_start: Series,
+    pub span_end: Series,
+}
+
+impl From<Vec<BalanceVerification>> for BalanceVerifications {
+    fn from(list: Vec<BalanceVerification>) -> Self {
+        let iter = list.iter();
+
+        Self {
+            id: Series::new("verification.id", iter.clone().map(|x| x.id).collect::<Vec<_>>()),
+            date: DateChunked::new_from_naive_date(
+                "verification.date",
+                &iter.clone().map(|x| x.date).collect::<Vec<_>>(),
+            )
+            .into_series(),
+            account_name: Series::new(
+                "verification.account_name",
+                iter.clone()
+                    .map(|x| x.account.to_string())
+                    .collect::<Vec<_>>(),
+            ),
+            span_start: Series::new(
+                "verification.span_start",
+                iter.clone()
+                    .map(|x| x.span.start as u64)
+                    .collect::<Vec<_>>(),
+            ),
+            span_end: Series::new(
+                "verification.span_end",
+                iter.clone().map(|x| x.span.end as u64).collect::<Vec<_>>(),
+            ),
+            amount_numerator: Series::new(
+                "verification.amount_numerator",
+                iter.clone().map(|x| x.amount.numer()).collect::<Vec<_>>(),
+            ),
+            amount_denominator: Series::new(
+                "verification.amount_denominator",
+                iter.clone().map(|x| x.amount.denom()).collect::<Vec<_>>(),
+            ),
+            currency: Series::new(
+                "verification.currency",
+                iter.clone().map(|x| x.amount.currency()).collect::<Vec<_>>(),
+            ),
+        }
+    }
+}
+
+pub struct AccountOpening {
+    pub id: u64,
+    pub date: NaiveDate,
+    pub account: Account,
+    pub currency: Currency,
+    pub span: Span,
+}
+
+impl AccountOpening {
+    pub fn new(id: u64, account: Account, date: NaiveDate, currency: Currency, span: Span) -> Self {
+        Self {
+            id,
+            account,
+            date,
+            currency,
+            span,
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct AccountOpenings {
+    pub id: Series,
+    pub date: Series,
+    pub account_name: Series,
+    pub currency: Series,
+    pub span_start: Series,
+    pub span_end: Series,
+}
+
+impl From<Vec<AccountOpening>> for AccountOpenings {
+    fn from(list: Vec<AccountOpening>) -> Self {
+        let iter = list.iter();
+
+        Self {
+            id: Series::new("account.id", iter.clone().map(|x| x.id).collect::<Vec<_>>()),
+            date: DateChunked::new_from_naive_date(
+                "account.date",
+                &iter.clone().map(|x| x.date).collect::<Vec<_>>(),
+            )
+            .into_series(),
+            account_name: Series::new(
+                "account.account_name",
+                iter.clone()
+                    .map(|x| x.account.to_string())
+                    .collect::<Vec<_>>(),
+            ),
+            currency: Series::new(
+                "account.currency",
+                iter.clone().map(|x| x.currency.0.clone()).collect::<Vec<_>>(),
+            ),
+            span_start: Series::new(
+                "account.span_start",
+                iter.clone()
+                    .map(|x| x.span.start as u64)
+                    .collect::<Vec<_>>(),
+            ),
+            span_end: Series::new(
+                "account.span_end",
+                iter.clone().map(|x| x.span.end as u64).collect::<Vec<_>>(),
+            ),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub struct Ledger {
+    pub transactions: Transactions,
+    pub balance_verifications: Vec<BalanceVerification>,
+    pub account_openings: AccountOpenings,
+}
+
+impl From<Vec<Transaction>> for Transactions {
+    fn from(list: Vec<Transaction>) -> Self {
+        let iter = list.iter();
+
+        Self {
+            id: Series::new("transaction.id", iter.clone().map(|x| x.id).collect::<Vec<_>>()),
+            date: DateChunked::new_from_naive_date(
+                "transaction.date",
+                &iter.clone().map(|x| x.date).collect::<Vec<_>>(),
+            )
+            .into_series(),
+            description: Series::new(
+                "transaction.description",
+                iter.clone()
+                    .map(|x| x.description.clone())
+                    .collect::<Vec<_>>(),
+            ),
+            account_name: Series::new(
+                "transaction.account_name",
+                iter.clone()
+                    .map(|x| x.account.to_string())
+                    .collect::<Vec<_>>(),
+            ),
+            account_name_0: Series::new(
+                "transaction.account_name_0",
+                iter.clone()
+                    .map(|x| x.account.parts().get(0).cloned())
+                    .collect::<Vec<_>>(),
+            ),
+            account_name_1: Series::new(
+                "transaction.account_name_1",
+                iter.clone()
+                    .map(|x| x.account.parts().get(1).cloned())
+                    .collect::<Vec<_>>(),
+            ),
+            account_name_2: Series::new(
+                "transaction.account_name_2",
+                iter.clone()
+                    .map(|x| x.account.parts().get(2).cloned())
+                    .collect::<Vec<_>>(),
+            ),
+            account_name_3: Series::new(
+                "transaction.account_name_3",
+                iter.clone()
+                    .map(|x| x.account.parts().get(3).cloned())
+                    .collect::<Vec<_>>(),
+            ),
+            amount_numerator: Series::new(
+                "transaction.amount_numerator",
+                iter.clone().map(|x| x.amount.numer()).collect::<Vec<_>>(),
+            ),
+            amount_denominator: Series::new(
+                "transaction.amount_denominator",
+                iter.clone().map(|x| x.amount.denom()).collect::<Vec<_>>(),
+            ),
+            currency: Series::new(
+                "transaction.currency",
+                iter.clone()
+                    .map(|x| x.amount.currency())
+                    .collect::<Vec<_>>(),
+            ),
+            amount_from_numerator: Series::new(
+                "transaction.amount_from_numerator",
+                iter.clone().map(|x| x.amount.numer()).collect::<Vec<_>>(),
+            ),
+            amount_from_denominator: Series::new(
+                "transaction.amount_from_denominator",
+                iter.clone().map(|x| x.amount.denom()).collect::<Vec<_>>(),
+            ),
+            currency_from: Series::new(
+                "transaction.currency_from",
+                iter.clone()
+                    .map(|x| x.amount.currency())
+                    .collect::<Vec<_>>(),
+            ),
+            is_credit: Series::new(
+                "transaction.is_credit",
+                iter.clone().map(|x| x.is_credit()).collect::<Vec<_>>(),
+            ),
+            parent_id: Series::new(
+                "transaction.parent_id",
+                iter.clone().map(|x| x.parent_id).collect::<Vec<_>>(),
+            ),
+            span_start: Series::new(
+                "transaction.span_start",
+                iter.clone()
+                    .map(|x| x.span.start as u64)
+                    .collect::<Vec<_>>(),
+            ),
+            span_end: Series::new(
+                "transaction.span_end",
+                iter.clone().map(|x| x.span.end as u64).collect::<Vec<_>>(),
+            ),
+            signed_amount: Series::new(
+                "transaction.signed_amount",
+                iter.clone()
+                    .map(|x| {
+                        x.amount
+                            .amount
+                            .to_f64()
+                            .map(|m| m * x.account.signed_factor(x.kind).to_f64().unwrap())
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+        }
+    }
+}
+
+fn date_to_arrow_datatype(date: NaiveDate) -> i32 {
+    let unix_epoch = NaiveDate::from_ymd(1970, 1, 1).and_hms(0, 0, 0);
+    let time = date.and_hms(0, 0, 0);
+
+    let duration = time - NaiveDateTime::from(unix_epoch);
+
+    duration.num_days() as i32
 }

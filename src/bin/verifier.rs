@@ -16,12 +16,12 @@ fn main() -> Result<()> {
     let input = std::fs::read_to_string(&options.file)?;
 
     let parsed = syntax::parse_string(&options.file, &input)?;
-    let (ledger, context) = compute_program(parsed)?;
+    let ledger = compute_program(parsed)?;
 
     println!("Validating transactions internal state...");
     ValidationRunner::run_all(&options.file, &input, &ledger)?;
     println!("Validating balance statements...");
-    ledger.validate_balances(context.balance_verifications)?;
+    ledger.transactions.validate_balances(ledger.balance_verifications)?;
 
     Ok(())
 }
