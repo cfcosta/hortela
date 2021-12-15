@@ -109,7 +109,7 @@ fn validate_credits_and_debits_balance(ledger: &Ledger) -> Result<(), Validation
             "In a double-entry accounting system, all credits and debits should balance in the end."
                 .into(),
         span: None,
-        found: Some(format!("{:.1$}", credit_sum - debit_sum, 2)),
+        found: Some(format!("{:.1$}", credit_sum as i64 - debit_sum as i64, 2)),
         expected: Some(format!("0.0")),
     }]))
 }
@@ -155,7 +155,7 @@ fn validate_all_isolated_transactions_balance(ledger: &Ledger) -> Result<(), Val
 
     let result = df.filter(&unbalanced)?;
 
-    if result.is_empty() {
+    if result.shape().0 == 0 {
         return Ok(());
     }
 
