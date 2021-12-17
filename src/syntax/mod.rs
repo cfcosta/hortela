@@ -2,7 +2,7 @@ mod lexer;
 mod parser;
 
 pub use lexer::lexer;
-pub use parser::{ parse_file, parse_string };
+pub use parser::{parse_file, parse_string};
 
 use chrono::prelude::*;
 use num::BigRational;
@@ -61,7 +61,7 @@ impl Keyword {
             "open" => Some(Self::Open),
             "balance" => Some(Self::Balance),
             "transaction" => Some(Self::Transaction),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -73,42 +73,42 @@ pub enum Expr {
     Currency(String),
     Amount(BigRational, String),
     Keyword(Keyword),
-    Description(String)
+    Description(String),
 }
 
 impl Expr {
     pub fn get_date(&self) -> Option<NaiveDate> {
         match self {
             Expr::Date(d) => Some(*d),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn get_account(&self) -> Option<Account> {
         match self {
             Expr::Account(a) => Some(a.clone()),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn get_currency(&self) -> Option<String> {
         match self {
             Expr::Currency(c) => Some(c.clone()),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn get_money(&self) -> Option<Money> {
         match self {
             Expr::Amount(a, c) => Some(Money::new(a.clone(), c.clone())),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn get_description(&self) -> Option<String> {
         match self {
             Expr::Description(d) => Some(d.clone()),
-            _ => None
+            _ => None,
         }
     }
 }
@@ -140,70 +140,70 @@ impl Token {
     pub fn is_comment(&self) -> bool {
         match self {
             Token::Comment(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_identifier(&self) -> bool {
         match self {
             Token::Identifier(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_movement(&self) -> bool {
         match self {
             Token::Movement(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_string(&self) -> bool {
         match self {
             Token::String(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_currency(&self) -> bool {
         match self {
             Token::Currency(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_number(&self) -> bool {
         match self {
             Token::Number(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn is_separator(&self) -> bool {
         match self {
             Token::Separator(_) => true,
-            _ => false
+            _ => false,
         }
     }
 
     pub fn get_number(&self) -> Option<BigRational> {
         match self {
             Token::Number(n) => Some(n.clone()),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn get_string(&self) -> Option<String> {
         match self {
             Token::String(s) => Some(s.clone()),
-            _ => None
+            _ => None,
         }
     }
 
     pub fn get_movement_kind(&self) -> Option<MovementKind> {
         match self {
             Token::Movement(m) => Some(m.clone()),
-            _ => None
+            _ => None,
         }
     }
 }

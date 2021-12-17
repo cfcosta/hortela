@@ -1,11 +1,8 @@
-use std::path::Path;
-
-use anyhow::{bail, Result};
-use ariadne::{Color, Fmt, Label, Report, ReportKind, Source};
+use anyhow::Result;
 use polars::prelude::*;
 use thiserror::Error;
 
-use crate::{ledger::Ledger, syntax::Span};
+use crate::{ledger::Ledger, syntax::Span, utils};
 
 mod runner;
 pub use runner::Runner;
@@ -17,6 +14,9 @@ pub enum ValidationError {
 
     #[error("Something happened with the Dataframe...")]
     DataframeError(#[from] polars::error::PolarsError),
+
+    #[error("Some other weird error happened.")]
+    OtherError(#[from] anyhow::Error),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +38,10 @@ pub static ALL_VALIDATORS: &[(&'static str, Validator)] = &[
     (
         "validate that all isolated transactions are properly balanced",
         validate_all_isolated_transactions_balance,
+    ),
+    (
+        "validate that all balance statements are correct",
+        validate_balance_statements,
     ),
 ];
 
@@ -69,10 +73,8 @@ fn validate_credits_and_debits_balance(ledger: &Ledger) -> Result<(), Validation
     }]))
 }
 
-fn validate_all_isolated_transactions_balance(ledger: &Ledger) -> Result<(), ValidationError> {
-    let mut df = ledger.transactions.all()?;
-
-    let credit_factor = df
+fn credit_factor_series(df: &DataFrame) -> Result<Series> {
+    Ok(df
         .column("transaction.is_credit")?
         .bool()?
         .branch_apply_cast_numeric_no_null::<_, Float64Type>(|x| {
@@ -82,11 +84,16 @@ fn validate_all_isolated_transactions_balance(ledger: &Ledger) -> Result<(), Val
                 -1.0
             }
         })
-        .into_series();
+        .into_series())
+}
+
+fn validate_all_isolated_transactions_balance(ledger: &Ledger) -> Result<(), ValidationError> {
+    let mut df = ledger.transactions.all()?;
 
     df.replace(
         "transaction.amount",
-        df.column("transaction.amount")?.multiply(&credit_factor)?,
+        df.column("transaction.amount")?
+            .multiply(&credit_factor_series(&df)?)?,
     )?;
 
     let grouped = df.groupby("transaction.parent_id")?;
@@ -116,13 +123,6 @@ fn validate_all_isolated_transactions_balance(ledger: &Ledger) -> Result<(), Val
 
     let mut errors = vec![];
 
-    let to_number = |v: &AnyValue| -> Option<u64> {
-        match v {
-            AnyValue::UInt64(v) => Some(*v),
-            _ => None,
-        }
-    };
-
     for i in 0..result.shape().0 {
         let item = result.get(i).unwrap();
 
@@ -132,9 +132,85 @@ fn validate_all_isolated_transactions_balance(ledger: &Ledger) -> Result<(), Val
                 .to_string(),
             found: Some(format!("{:.1$}", item.get(1).unwrap(), 2)),
             expected: Some("0.0".to_string()),
-            span: item.get(2).and_then(to_number).and_then(|start| {
+            span: item.get(2).and_then(anyvalue_to_number).and_then(|start| {
                 item.get(3)
-                    .and_then(to_number)
+                    .and_then(anyvalue_to_number)
+                    .map(|end| (start as usize)..((end - 1) as usize))
+            }),
+        })
+    }
+
+    Err(ValidationError::WithTrace(errors))
+}
+
+fn anyvalue_to_number(v: &AnyValue) -> Option<u64> {
+    match v {
+        AnyValue::UInt64(v) => Some(*v),
+        _ => None,
+    }
+}
+
+fn validate_balance_statements(ledger: &Ledger) -> Result<(), ValidationError> {
+    let mut df = ledger.transactions.all()?;
+    let verifications = ledger.balance_verifications.all()?;
+
+    df.replace(
+        "transaction.amount",
+        df.column("transaction.amount")?
+            .multiply(&credit_factor_series(&df)?)?,
+    )?;
+
+    let per_day = df
+        .groupby(&["transaction.date", "transaction.account_name"])?
+        .agg(&[
+            ("transaction.amount", &["cumsum"]),
+            ("transaction.span_start", &["min"]),
+            ("transaction.span_end", &["max"]),
+        ])?
+        .sort("transaction.date", false)?;
+
+    let exploded_date = utils::explode_date_series(df.column("transaction.date")?)?;
+    let accounts = df.column("transaction.account_name")?;
+    let foo = DataFrame::new(vec![exploded_date])?;
+    let bar = DataFrame::new(vec![accounts.clone()])?;
+    let account_and_date = foo.cross_join(&bar)?;
+
+    let balances_per_day = account_and_date.left_join(
+        &per_day,
+        &["transaction.date", "transaction.account_name"],
+        &["transaction.date", "transaction.account_name"],
+    )?;
+
+    let with_verifications = dbg!(verifications.inner_join(
+        &balances_per_day,
+        &["verification.date", "verification.account_name"],
+        &["transaction.date", "transaction.account_name"],
+    )?);
+
+    let unbalanced_mask = dbg!(with_verifications
+        .column("transaction.amount_sum")?
+        .not_equal(with_verifications.column("verification.amount")?));
+
+    let unbalanced_transactions = dbg!(with_verifications.filter(&unbalanced_mask)?);
+
+    if unbalanced_transactions.shape().0 == 0 {
+        return Ok(());
+    }
+
+    let mut errors = vec![];
+
+    for i in 0..unbalanced_transactions.shape().0 {
+        let item = unbalanced_transactions.get(i).unwrap();
+
+        errors.push(Trace {
+            message: "Transaction does not balance".into(),
+            details: "Inside a transaction, all debits and credits must balance in the end."
+                .to_string(),
+            found: Some(format!("{:.1$}", item.get(1).unwrap(), 2)),
+            expected: Some("0.0".to_string()),
+            span: item.get(2).and_then(anyvalue_to_number).and_then(|start| {
+                item.get(3)
+                    .and_then(anyvalue_to_number)
                     .map(|end| (start as usize)..((end - 1) as usize))
             }),
         })

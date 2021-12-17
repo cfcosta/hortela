@@ -14,7 +14,8 @@ fn number() -> impl Parser<char, Token, Error = Simple<char>> {
     num.try_map(move |number: String, span| match number.parse::<f64>() {
         Ok(n) => Ok(Token::number(n)),
         _ => Err(Simple::custom(span, "Not a valid number")),
-    }).labelled("number")
+    })
+    .labelled("number")
 }
 
 fn movement() -> impl Parser<char, Token, Error = Simple<char>> {

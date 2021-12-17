@@ -21,7 +21,9 @@ fn main() -> Result<()> {
     println!("Validating transactions internal state...");
     validate::Runner::run_all(&options.file, &input, &ledger)?;
     println!("Validating balance statements...");
-    ledger.transactions.validate_balances(ledger.balance_verifications)?;
+    ledger
+        .transactions
+        .validate_balances(ledger.balance_verifications)?;
 
     Ok(())
 }

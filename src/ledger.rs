@@ -1,6 +1,6 @@
-use std::ops::{BitAnd, Not};
+use std::ops::Not;
 
-use chrono::{NaiveDate, NaiveDateTime};
+use chrono::NaiveDate;
 use num::ToPrimitive;
 use polars::prelude::*;
 
@@ -106,42 +106,7 @@ impl Transactions {
         ])
     }
 
-    pub fn validate_balances(&self, list: Vec<BalanceVerification>) -> Result<()> {
-        for verification in list {
-            print!(
-                "Verifying balance for {} on {}...",
-                verification.account, verification.date
-            );
-
-            let df = self.all()?;
-
-            let acc: &str = &verification.account.to_string();
-            let filter_mask = df.column("transaction.account_name")?.equal(acc);
-
-            let date_mask = df
-                .column("transaction.date")?
-                .date()?
-                .lt_eq(date_to_arrow_datatype(verification.date));
-
-            let filtered = df.filter(&filter_mask.bitand(date_mask))?;
-
-            let sum = filtered
-                .column("transaction.signed_amount")?
-                .sum()
-                .unwrap_or(0.0);
-
-            // TODO: Make proper rounding for the numbers to avoid those kinds of hacks
-            if !verification.amount.equals(sum, 2) {
-                println!(" ERROR");
-                panic!(
-                    "Balances do not match, expected {}, got {}",
-                    verification.amount, sum
-                );
-            }
-
-            println!(" OK");
-        }
-
+    pub fn validate_balances(&self, list: BalanceVerifications) -> Result<()> {
         Ok(())
     }
 }
@@ -179,12 +144,40 @@ pub struct BalanceVerifications {
     pub span_end: Series,
 }
 
+impl BalanceVerifications {
+    pub fn all(&self) -> Result<DataFrame> {
+        let data = self.clone();
+
+        let mut amount = data
+            .amount_numerator
+            .cast(&DataType::Float64)?
+            .divide(&data.amount_denominator.cast(&DataType::Float64)?)?;
+
+        amount.rename("verification.amount");
+
+        DataFrame::new(vec![
+            data.id,
+            data.date,
+            data.account_name,
+            amount,
+            data.amount_numerator,
+            data.amount_denominator,
+            data.currency,
+            data.span_start,
+            data.span_end,
+        ])
+    }
+}
+
 impl From<Vec<BalanceVerification>> for BalanceVerifications {
     fn from(list: Vec<BalanceVerification>) -> Self {
         let iter = list.iter();
 
         Self {
-            id: Series::new("verification.id", iter.clone().map(|x| x.id).collect::<Vec<_>>()),
+            id: Series::new(
+                "verification.id",
+                iter.clone().map(|x| x.id).collect::<Vec<_>>(),
+            ),
             date: DateChunked::new_from_naive_date(
                 "verification.date",
                 &iter.clone().map(|x| x.date).collect::<Vec<_>>(),
@@ -216,7 +209,9 @@ impl From<Vec<BalanceVerification>> for BalanceVerifications {
             ),
             currency: Series::new(
                 "verification.currency",
-                iter.clone().map(|x| x.amount.currency()).collect::<Vec<_>>(),
+                iter.clone()
+                    .map(|x| x.amount.currency())
+                    .collect::<Vec<_>>(),
             ),
         }
     }
@@ -271,7 +266,9 @@ impl From<Vec<AccountOpening>> for AccountOpenings {
             ),
             currency: Series::new(
                 "account.currency",
-                iter.clone().map(|x| x.currency.0.clone()).collect::<Vec<_>>(),
+                iter.clone()
+                    .map(|x| x.currency.0.clone())
+                    .collect::<Vec<_>>(),
             ),
             span_start: Series::new(
                 "account.span_start",
@@ -290,7 +287,7 @@ impl From<Vec<AccountOpening>> for AccountOpenings {
 #[derive(Clone)]
 pub struct Ledger {
     pub transactions: Transactions,
-    pub balance_verifications: Vec<BalanceVerification>,
+    pub balance_verifications: BalanceVerifications,
     pub account_openings: AccountOpenings,
 }
 
@@ -299,7 +296,10 @@ impl From<Vec<Transaction>> for Transactions {
         let iter = list.iter();
 
         Self {
-            id: Series::new("transaction.id", iter.clone().map(|x| x.id).collect::<Vec<_>>()),
+            id: Series::new(
+                "transaction.id",
+                iter.clone().map(|x| x.id).collect::<Vec<_>>(),
+            ),
             date: DateChunked::new_from_naive_date(
                 "transaction.date",
                 &iter.clone().map(|x| x.date).collect::<Vec<_>>(),
@@ -400,13 +400,4 @@ impl From<Vec<Transaction>> for Transactions {
             ),
         }
     }
-}
-
-fn date_to_arrow_datatype(date: NaiveDate) -> i32 {
-    let unix_epoch = NaiveDate::from_ymd(1970, 1, 1).and_hms(0, 0, 0);
-    let time = date.and_hms(0, 0, 0);
-
-    let duration = time - NaiveDateTime::from(unix_epoch);
-
-    duration.num_days() as i32
 }

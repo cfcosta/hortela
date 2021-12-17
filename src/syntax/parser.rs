@@ -330,7 +330,10 @@ pub fn parse_string(filename: &Path, input: &str) -> Result<Vec<Spanned<Op>>> {
             let report = Report::build(ReportKind::Error, (), span.start());
 
             let report = match e.reason() {
-                chumsky::error::SimpleReason::Unclosed { delimiter: (delimiter, _) , .. } => report
+                chumsky::error::SimpleReason::Unclosed {
+                    delimiter: (delimiter, _),
+                    ..
+                } => report
                     .with_message(format!(
                         "Unclosed delimiter {}",
                         delimiter.fg(Color::Yellow)
@@ -375,7 +378,8 @@ pub fn parse_string(filename: &Path, input: &str) -> Result<Vec<Spanned<Op>>> {
                         Label::new(span)
                             .with_message(format!(
                                 "Unexpected token {}",
-                                e.found().map(|x| format!("`{}`", x.0))
+                                e.found()
+                                    .map(|x| format!("`{}`", x.0))
                                     .unwrap_or("end of file".to_string())
                                     .fg(Color::Red)
                             ))
